@@ -3,7 +3,7 @@ Intellegnt Automated Trading  Decision &amp; Support System
 
 **LAB-2 | 15-12-2025**
 **Dhruval Patel**
-- **Planning & Charts:** I spent this lab planning the app layout, like where to securely put the API keys and a small status light to check if the bot is running. I also realized the TradingView widget won't work for Nifty 50, so I had to start looking for other chart options. On top of that, I designed the controls for changing the Renko size and switching to paper trading.
+- **Planning & Charts:** I spent some time planning the "NifnityX" dashboard layout to figure out the main pages we need, like the Strategy Tuner, Trade History, and Broker Keys. I also found that the TradingView widget doesn't support Nifty 50 for free, so I had to start researching other trading chart widgets.
 
 **Meet Mehta**
 - **Learning NLP:** I created Trading Settings related code for logging and other Global trading settings.
