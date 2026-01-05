@@ -17,10 +17,10 @@ import pyotp
 
 # ==================== YOUR CREDENTIALS ====================
 
-API_KEY = "MXbo90P4"
-CLIENT_CODE = "AAAM659971"
-PASSWORD = "9778"
-TOTP_SECRET = "PI3IKVTFHM7KEGYCASLR237U"
+API_KEY = ""
+CLIENT_CODE = ""
+PASSWORD = ""
+TOTP_SECRET = ""
 
 # ========================================================
 
