@@ -1,0 +1,2 @@
+trade_id,timestamp,action,price,strategy,lots,status
+11,2020-12-31 14:15:00+05:30,BUY,13962.4,trend_following,1,OPEN

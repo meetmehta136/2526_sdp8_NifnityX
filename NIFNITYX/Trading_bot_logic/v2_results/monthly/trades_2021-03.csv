@@ -1,0 +1,2 @@
+trade_id,timestamp,action,price,strategy,lots,status,exit_price,exit_time,exit_reason,pnl
+16,2021-03-22 12:15:00+05:30,BUY,14634.75,trend_following,1,CLOSED,14625.65,2021-03-22 12:30:00+05:30,STOP_LOSS,-682.5000000000273

@@ -1,0 +1,2 @@
+trade_id,timestamp,action,price,strategy,lots,status,exit_price,exit_time,exit_reason,pnl
+12,2021-01-01 15:00:00+05:30,BUY,14015.0,trend_following,1,CLOSED,14025.0,2021-01-04 11:00:00+05:30,STOP_LOSS,750.0
