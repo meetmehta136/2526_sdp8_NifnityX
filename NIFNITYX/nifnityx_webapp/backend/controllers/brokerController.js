@@ -2,8 +2,19 @@ import Broker from "../models/Broker.js";
 import User from "../models/User.js";
 import { encrypt, decrypt } from "../utils/encryption.js";
 import axios from "axios";
-// USE FUNCTIONAL API as per latest docs
 import { generate } from "otplib";
+import https from "https";
+
+// --- FIX: Create an HTTPS Agent to bypass "self-signed certificate" errors ---
+// This is often needed in dev environments or when behind certain proxies/firewalls.
+const httpsAgent = new https.Agent({  
+  rejectUnauthorized: false 
+});
+
+// Helper: Axios instance with the custom agent
+const angelApi = axios.create({
+  httpsAgent
+});
 
 // @desc    Get current trading mode and broker status
 // @route   GET /api/broker/status
@@ -124,7 +135,7 @@ export const testConnection = async (req, res) => {
 
     console.log(`[AngelOne] Login attempt: ${clientCode} | TOTP Generated`);
 
-    // 2. Call Angel One Login API
+    // 2. Call Angel One Login API (Using angelApi instance with httpsAgent)
     const loginUrl = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword";
     
     const headers = {
@@ -145,7 +156,7 @@ export const testConnection = async (req, res) => {
     };
 
     const startTime = Date.now();
-    const response = await axios.post(loginUrl, payload, { headers });
+    const response = await angelApi.post(loginUrl, payload, { headers }); // Use angelApi instead of raw axios
     const endTime = Date.now();
     const latency = endTime - startTime;
 
@@ -196,7 +207,7 @@ export const getMarketStatus = async (req, res) => {
     const clientCode = broker.clientCode;
 
     if (!decryptedTotpSecret || decryptedTotpSecret.includes("*")) {
-         throw new Error("Invalid TOTP Secret");
+          throw new Error("Invalid TOTP Secret");
     }
     
     const token = await generate({ secret: decryptedTotpSecret });
@@ -213,7 +224,8 @@ export const getMarketStatus = async (req, res) => {
       'X-PrivateKey': decryptedApiKey
     };
 
-    const loginResponse = await axios.post(loginUrl, {
+    // Use angelApi here as well
+    const loginResponse = await angelApi.post(loginUrl, {
       clientcode: clientCode,
       password: decryptedPassword,
       totp: token
@@ -239,10 +251,10 @@ export const getMarketStatus = async (req, res) => {
       'X-PrivateKey': decryptedApiKey
     };
 
-    // Try "NIFTY" as tradingsymbol - usually resolves 403 for Indices
     const niftyPayload = { exchange: "NSE", tradingsymbol: "NIFTY", symboltoken: "99926000" };
     
-    const niftyResponse = await axios.post(ltpUrl, niftyPayload, { headers: ltpHeaders });
+    // Use angelApi here as well
+    const niftyResponse = await angelApi.post(ltpUrl, niftyPayload, { headers: ltpHeaders });
     
     let niftyData = { price: 0, change: 0, percent: 0 };
     
@@ -289,10 +301,9 @@ export const getHistoricalData = async (req, res) => {
         const clientCode = broker.clientCode;
 
         if (!decryptedTotpSecret || decryptedTotpSecret.includes("*")) {
-             return res.json([]); // Don't crash, just return empty
+             return res.json([]); 
         }
 
-        // 1. Authenticate
         const token = await generate({ secret: decryptedTotpSecret });
         const loginUrl = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword";
         
@@ -307,7 +318,8 @@ export const getHistoricalData = async (req, res) => {
             'X-PrivateKey': decryptedApiKey
         };
 
-        const loginResponse = await axios.post(loginUrl, {
+        // Use angelApi here as well
+        const loginResponse = await angelApi.post(loginUrl, {
             clientcode: clientCode,
             password: decryptedPassword,
             totp: token
@@ -319,8 +331,6 @@ export const getHistoricalData = async (req, res) => {
         }
 
         const jwtToken = loginResponse.data.data.jwtToken;
-
-        // 2. Fetch Candle Data
         const histUrl = "https://apiconnect.angelbroking.com/rest/secure/angelbroking/historical/v1/getCandleData";
         
         const histHeaders = {
@@ -328,9 +338,7 @@ export const getHistoricalData = async (req, res) => {
             'Authorization': `Bearer ${jwtToken}`,
         };
 
-        // Format Date: "YYYY-MM-DD HH:mm"
         const now = new Date();
-        // Fetch last 24 hours of data
         const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         
         const fmt = (d) => {
@@ -346,22 +354,19 @@ export const getHistoricalData = async (req, res) => {
             todate: fmt(now)
         };
 
-        const response = await axios.post(histUrl, payload, { headers: histHeaders });
+        // Use angelApi here as well
+        const response = await angelApi.post(histUrl, payload, { headers: histHeaders });
 
         if (response.data.status && response.data.data) {
-            // Map Angel One Data [timestamp, open, high, low, close, volume]
-            // To Lightweight Charts { time, open, high, low, close }
             const chartData = response.data.data.map(d => ({
-                time: Math.floor(new Date(d[0]).getTime() / 1000), // Convert string date to Unix timestamp
+                time: Math.floor(new Date(d[0]).getTime() / 1000),
                 open: d[1],
                 high: d[2],
                 low: d[3],
                 close: d[4]
             }));
 
-            // Sort by time ascending
             chartData.sort((a, b) => a.time - b.time);
-            
             res.json(chartData);
         } else {
             console.error("Angel History API Error:", response.data.message);

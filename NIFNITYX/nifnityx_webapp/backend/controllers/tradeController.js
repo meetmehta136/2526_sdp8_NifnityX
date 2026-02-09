@@ -1,86 +1,95 @@
 import Trade from "../models/Trade.js";
 import User from "../models/User.js";
 
-// @desc    Handle incoming Trade Signal from Python Bot (or Postman)
-// @route   POST /api/trades/signal
-// @access  Private (Protected by Token)
-export const handleTradeSignal = async (req, res) => {
+// @desc    Receive Webhook from Python ML Engine
+// @route   POST /api/trades/webhook
+export const receiveWebhookSignal = async (req, res) => {
   try {
     const signalData = req.body;
-    const userId = req.user._id;
+    console.log(`\n📩 [Webhook] Signal Received: ${signalData.symbol} (${signalData.trade_id})`);
 
-    // 1. Fetch User Settings to determine execution logic
-    const user = await User.findById(userId).select("settings");
-    
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+    // 1. Validation
+    if (!signalData.trade_id || !signalData.symbol || !signalData.entry) {
+      return res.status(400).json({ message: "Invalid signal data" });
     }
 
-    const { tradingMode, executionMode } = user.settings;
+    // 2. Real-time Broadcast
+    req.io.emit("new-trade-signal", signalData);
 
-    // 2. Determine Status based on Modes
-    let initialStatus = "PENDING_APPROVAL"; // Default Safe Mode
-    let isPaper = tradingMode === "paper";
-
-    if (isPaper) {
-      // Paper Trading: Always execute immediately (simulated)
-      initialStatus = "OPEN"; 
-    } else {
-      // Live Trading logic
-      if (executionMode === "auto") {
-        initialStatus = "OPEN"; 
-        // TODO: Trigger Angel One API Order Placement Here
-        // await placeAngelOneOrder(signalData);
-      } else {
-        initialStatus = "PENDING_APPROVAL"; // Manual / Safe Mode
-      }
+    // 3. Save to Database as PENDING
+    // We strictly check if it exists to avoid overwrites
+    const exists = await Trade.findOne({ trade_id: signalData.trade_id });
+    if (exists) {
+        return res.status(200).json({ message: "Duplicate signal logged" });
     }
 
-    // 3. Create Trade Record
-    const trade = await Trade.create({
-      user: userId,
-      trade_id: signalData.trade_id,
-      symbol: signalData.symbol,
-      setup_name: signalData.setup_name,
-      status: signalData.status || initialStatus, // Allow override if provided, else use logic
-      entry: signalData.entry,
-      exit: signalData.exit, // Might be null for new signals
-      pnl: signalData.pnl || 0,
-      confidence_score: signalData.confidence_score,
-      lots: signalData.lots,
-      ml_adjustment: signalData.ml_adjustment,
-      execution_mode: executionMode ? executionMode.toUpperCase() : "MANUAL",
-      is_paper: isPaper
+    // Try to assign to an admin user for record-keeping
+    const adminUser = await User.findOne({ role: "admin" });
+
+    const newTrade = new Trade({
+      ...signalData,
+      user: adminUser ? adminUser._id : null, 
+      status: signalData.status || "PENDING_APPROVAL", // Default state
+      is_paper: true,
     });
 
-    res.status(201).json({
-      success: true,
-      mode: tradingMode,
-      execution: executionMode,
-      message: `Signal Received. Status: ${initialStatus}`,
-      data: trade,
-    });
+    await newTrade.save();
+    console.log(`💾 [DB] Trade ${signalData.trade_id} saved as PENDING`);
+
+    res.status(200).json({ success: true, message: "Signal processed" });
 
   } catch (error) {
-    console.error("Signal Error:", error);
-    if (error.code === 11000) {
-      return res.status(400).json({ message: "Duplicate Trade ID received" });
-    }
-    res.status(500).json({ message: error.message });
+    console.error("❌ Webhook Error:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
 
-// @desc    Get Trade History (with smart filters)
+// @desc    Update Trade Status (Approve/Reject/Expire)
+// @route   PUT /api/trades/:tradeId/decision
+export const updateTradeDecision = async (req, res) => {
+  const { tradeId } = req.params;
+  const { decision, reason } = req.body; // decision: "OPEN" | "REJECTED" | "EXPIRED"
+
+  try {
+    const trade = await Trade.findOne({ trade_id: tradeId });
+
+    if (!trade) {
+      return res.status(404).json({ message: "Trade not found" });
+    }
+
+    // State Machine Check: Can only decide on Pending trades
+    if (trade.status !== "PENDING_APPROVAL") {
+      return res.status(400).json({ message: `Trade is already ${trade.status}` });
+    }
+
+    // Update Status
+    trade.status = decision;
+    if (reason) trade.exit = { ...trade.exit, reason: reason }; // Log rejection reason
+
+    // TODO: If decision === "OPEN" && !trade.is_paper, Trigger Angel One Order Here
+
+    await trade.save();
+    console.log(`📝 [Decision] Trade ${tradeId} updated to ${decision}`);
+
+    res.status(200).json(trade);
+  } catch (error) {
+    console.error("Update Error:", error);
+    res.status(500).json({ message: "Failed to update trade decision" });
+  }
+};
+
+// @desc    Get Trade History
 // @route   GET /api/trades
-// @access  Private
 export const getTrades = async (req, res) => {
   try {
     const { status, mode, limit } = req.query;
-    
-    // Build Query
-    const query = { user: req.user._id };
-    
-    // Allow comma-separated status (e.g. "WIN,LOSS")
+    const query = { 
+        $or: [
+            { user: req.user._id },
+            { user: null } 
+        ]
+    };
+
     if (status) {
         if (status.includes(',')) {
             query.status = { $in: status.split(',') };
@@ -93,7 +102,7 @@ export const getTrades = async (req, res) => {
     if (mode === 'live') query.is_paper = false;
 
     const trades = await Trade.find(query)
-      .sort({ "entry.time": -1 }) // FIX: -1 for Newest First
+      .sort({ createdAt: -1 })
       .limit(Number(limit) || 100);
 
     res.json(trades);
@@ -102,49 +111,28 @@ export const getTrades = async (req, res) => {
   }
 };
 
-// @desc    Get Dashboard Statistics (Win Rate, PnL, Active Trades)
+// @desc    Get Dashboard Statistics
 // @route   GET /api/trades/stats
-// @access  Private
 export const getDashboardStats = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const { mode } = req.query; 
-    
-    const matchStage = { user: userId };
-    if (mode === 'paper') matchStage.is_paper = true;
-    if (mode === 'live') matchStage.is_paper = false;
-
-    const stats = await Trade.aggregate([
-      { $match: matchStage },
-      {
-        $group: {
-          _id: null,
-          totalTrades: { $sum: 1 },
-          totalPnL: { $sum: "$pnl" },
-          wins: {
-            $sum: { $cond: [{ $eq: ["$status", "WIN"] }, 1, 0] }
-          },
-          losses: {
-            $sum: { $cond: [{ $eq: ["$status", "LOSS"] }, 1, 0] }
-          },
-          openTrades: {
-            $sum: { $cond: [{ $in: ["$status", ["OPEN", "PENDING_APPROVAL"]] }, 1, 0] }
+    try {
+        const stats = await Trade.aggregate([
+          { 
+              $group: {
+                  _id: null,
+                  totalTrades: { $sum: 1 },
+                  totalPnL: { $sum: "$pnl" },
+                  wins: { $sum: { $cond: [{ $eq: ["$status", "WIN"] }, 1, 0] } },
+                  losses: { $sum: { $cond: [{ $eq: ["$status", "LOSS"] }, 1, 0] } },
+                  // Rejected/Expired are tracked but don't count towards Win/Loss
+                  rejected: { $sum: { $cond: [{ $in: ["$status", ["REJECTED", "EXPIRED"]] }, 1, 0] } }
+              }
           }
-        }
-      }
-    ]);
-
-    const result = stats[0] || { totalTrades: 0, totalPnL: 0, wins: 0, losses: 0, openTrades: 0 };
-    
-    const closedTrades = result.wins + result.losses;
-    const winRate = closedTrades > 0 ? ((result.wins / closedTrades) * 100).toFixed(1) : 0;
-
-    res.json({
-      ...result,
-      winRate: Number(winRate)
-    });
-
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+        ]);
+        const result = stats[0] || { totalTrades: 0, totalPnL: 0, wins: 0, losses: 0, rejected: 0 };
+        const closedTrades = result.wins + result.losses;
+        const winRate = closedTrades > 0 ? ((result.wins / closedTrades) * 100).toFixed(1) : 0;
+        res.json({ ...result, winRate: Number(winRate) });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 };

@@ -2,50 +2,50 @@ import mongoose from "mongoose";
 
 const tradeSchema = new mongoose.Schema(
   {
+    // Optional user link (Python script won't have a User ID)
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false, 
     },
-    // Unique ID from the Python Engine (e.g., T-20260109-01)
+    // Unique ID from the Python Engine
     trade_id: {
       type: String,
       required: true,
       unique: true,
+      index: true
     },
     status: {
       type: String,
-      enum: ["OPEN", "CLOSED", "WIN", "LOSS", "PENDING_APPROVAL", "REJECTED", "CANCELLED"],
+      enum: ["OPEN", "CLOSED", "WIN", "LOSS", "PENDING_APPROVAL", "REJECTED", "CANCELLED", "EXPIRED"],
       required: true,
       default: "PENDING_APPROVAL",
     },
     symbol: {
       type: String,
-      required: true, // e.g., "NIFTY 25800 CE"
+      required: true,
     },
     setup_name: {
       type: String,
-      required: true, // e.g., "trend_bounce_sell"
+      required: true,
     },
-    // Entry details
     entry: {
       price: { type: Number, required: true },
       time: { type: Date, required: true },
     },
-    // Exit details (Optional at creation)
     exit: {
-      price: { type: Number },
+      price: { type: Number, default: 0 },
       time: { type: Date },
-      reason: { type: String }, // e.g., "TARGET_HIT", "STOP_LOSS"
+      reason: { type: String },
     },
     pnl: {
       type: Number,
       default: 0,
     },
-    // The ML Confidence breakdown
+    // Updated Confidence Structure
     confidence_score: {
       total: { type: Number, required: true },
-      max: { type: Number, default: 100 },
+      max: { type: Number, default: 100 }, // Support for 160 scale
       breakdown: {
         technical: { type: Number, default: 0 },
         sentiment: { type: Number, default: 0 },
@@ -57,10 +57,9 @@ const tradeSchema = new mongoose.Schema(
       default: 1,
     },
     ml_adjustment: {
-      type: String, // e.g., "0.75x"
+      type: String,
       default: "1.0x",
     },
-    // Meta fields for our internal logic
     execution_mode: {
       type: String,
       enum: ["AUTO", "MANUAL"],
@@ -72,13 +71,13 @@ const tradeSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, // Adds createdAt and updatedAt
+    timestamps: true,
   }
 );
 
-// Indexes for faster dashboard queries
-tradeSchema.index({ user: 1, status: 1 });
-tradeSchema.index({ trade_id: 1 });
+// Optimize for History Page sorting
+tradeSchema.index({ createdAt: -1 });
 
 const Trade = mongoose.model("Trade", tradeSchema);
+
 export default Trade;

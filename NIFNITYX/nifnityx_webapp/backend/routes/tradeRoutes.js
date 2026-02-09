@@ -1,17 +1,22 @@
 import express from "express";
 import { protect } from "../middlewares/authMiddleware.js";
 import {
-  handleTradeSignal,
+  receiveWebhookSignal,
+  updateTradeDecision,
   getTrades,
   getDashboardStats,
 } from "../controllers/tradeController.js";
 
 const router = express.Router();
 
-// Base route: /api/trades
+// Public Webhook (Python Engine)
+router.post("/webhook", receiveWebhookSignal); 
 
-router.post("/signal", protect, handleTradeSignal); // The Webhook for Python
-router.get("/", protect, getTrades);                // History Table
-router.get("/stats", protect, getDashboardStats);   // Session HUD
+// Protected Frontend Routes
+router.get("/", protect, getTrades);
+router.get("/stats", protect, getDashboardStats);
+
+// NEW: Route to handle User Decisions (Approve/Reject)
+router.put("/:tradeId/decision", protect, updateTradeDecision);
 
 export default router;

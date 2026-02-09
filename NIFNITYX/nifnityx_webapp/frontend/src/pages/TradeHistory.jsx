@@ -1,60 +1,23 @@
 import React, { useState, useEffect } from "react";
 import { fetchTrades } from "@/lib/api";
-// Importing sub-components directly, but we will use a native <table> for better layout control
 import {
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { 
-    Search, Download, Filter, 
-    CheckCircle2, XCircle, Clock, Ban, 
-    Bot, User, Zap, Wallet, FileText, X
+  Search, CheckCircle2, XCircle, Clock, Ban, 
+  Bot, Wallet, Zap, X, FileText
 } from "lucide-react";
-
-// --- MOCK DATA GENERATOR (For Simulation) ---
-const generateMockTrades = (count) => {
-    const strategies = ["Trend Bounce", "Gamma Scalp", "Theta Decay", "Breakout"];
-    const statuses = ["WIN", "LOSS", "OPEN", "REJECTED"];
-    return Array.from({ length: count }).map((_, i) => {
-        const status = statuses[Math.floor(Math.random() * statuses.length)];
-        const isWin = status === 'WIN';
-        const isPaper = Math.random() > 0.3;
-        return {
-            _id: `trade-${i}`,
-            trade_id: `T-${20240000 + i}`,
-            symbol: `NIFTY ${Math.floor(Math.random() * 50) * 100 + 24000} CE`,
-            setup_name: strategies[Math.floor(Math.random() * strategies.length)],
-            status: status,
-            entry: { price: 145.50 + Math.random() * 50, time: new Date(Date.now() - i * 3600000).toISOString() },
-            exit: status === 'OPEN' ? null : { price: 145.50 + (isWin ? 20 : -10) + Math.random() * 5, time: new Date() },
-            pnl: status === 'OPEN' || status === 'REJECTED' ? 0 : (isWin ? (Math.random() * 2000 + 500) : -(Math.random() * 1000 + 200)),
-            lots: Math.floor(Math.random() * 4) + 1,
-            is_paper: isPaper,
-            execution_mode: Math.random() > 0.5 ? "AUTO" : "MANUAL",
-            confidence_score: { total: Math.floor(Math.random() * 30) + 70 }
-        };
-    });
-};
 
 export default function TradeHistory() {
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Filters
   const [activeTab, setActiveTab] = useState("all"); 
   const [sourceFilter, setSourceFilter] = useState("all"); 
@@ -64,18 +27,13 @@ export default function TradeHistory() {
   const loadTrades = async () => {
     setLoading(true);
     try {
-        let data = [];
-        try {
-            const res = await fetchTrades({ limit: 50 });
-            data = res.data;
-        } catch (e) {
-            console.warn("API Fetch failed, using mock data");
-        }
-
-        if (!data || data.length === 0) {
-            data = generateMockTrades(30); 
-        }
-        setTrades(data);
+      // Fetch Real Data Only
+      const res = await fetchTrades({ limit: 100 });
+      if (res.data && Array.isArray(res.data)) {
+        setTrades(res.data);
+      } else {
+        setTrades([]);
+      }
     } catch (error) {
       console.error("Failed to load trades", error);
     } finally {
@@ -90,14 +48,14 @@ export default function TradeHistory() {
   // --- FILTERING LOGIC ---
   const filteredTrades = trades.filter(trade => {
     const matchesSearch = 
-        trade.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        trade.trade_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        trade.setup_name.toLowerCase().includes(searchQuery.toLowerCase());
+      (trade.symbol || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (trade.trade_id || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (trade.setup_name || "").toLowerCase().includes(searchQuery.toLowerCase());
 
     let matchesTab = true;
     if (activeTab === "live") matchesTab = trade.status === "OPEN";
     else if (activeTab === "history") matchesTab = ["WIN", "LOSS", "CLOSED"].includes(trade.status);
-    else if (activeTab === "logs") matchesTab = ["REJECTED", "PENDING_APPROVAL", "CANCELLED"].includes(trade.status);
+    else if (activeTab === "logs") matchesTab = ["REJECTED", "PENDING_APPROVAL", "CANCELLED", "EXPIRED"].includes(trade.status);
 
     let matchesSource = true;
     if (sourceFilter === "live") matchesSource = trade.is_paper === false;
@@ -119,13 +77,13 @@ export default function TradeHistory() {
 
   const hasActiveFilters = activeTab !== 'all' || sourceFilter !== 'all' || execFilter !== 'all' || searchQuery !== '';
 
-  // --- UI COMPONENTS ---
   const StatusBadge = ({ status }) => {
     const config = {
       WIN: { color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20", icon: CheckCircle2 },
       LOSS: { color: "text-red-400 bg-red-500/10 border-red-500/20", icon: XCircle },
       OPEN: { color: "text-blue-400 bg-blue-500/10 border-blue-500/20", icon: Clock },
       REJECTED: { color: "text-zinc-500 bg-zinc-900 border-zinc-700", icon: Ban },
+      EXPIRED: { color: "text-zinc-500 bg-zinc-900 border-zinc-700", icon: Ban },
       PENDING_APPROVAL: { color: "text-amber-400 bg-amber-500/10 border-amber-500/20", icon: Zap },
     };
     const style = config[status] || config.REJECTED;
@@ -140,218 +98,150 @@ export default function TradeHistory() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-theme(spacing.20))] max-w-[1600px] mx-auto p-1 gap-4">
-      
-      {/* 1. Header Section (Compact) */}
+      {/* Header */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-zinc-100 tracking-tight flex items-center gap-3">
-            Trade History 
+            Trade History
             <Badge variant="secondary" className="bg-zinc-800 text-zinc-400 border-zinc-700 font-mono font-normal text-xs">
-                {filteredTrades.length} Records
+              {filteredTrades.length} Records
             </Badge>
           </h1>
           <p className="text-zinc-400 text-xs mt-1">Audit log of all algorithmic executions.</p>
         </div>
-        <Button variant="outline" size="sm" className="border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white hover:bg-zinc-900 h-8 text-xs">
-            <Download size={13} className="mr-2" /> Export CSV
+        <Button variant="outline" size="sm" onClick={loadTrades} className="border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white hover:bg-zinc-900 h-8 text-xs">
+          Refresh Data
         </Button>
       </div>
 
-      {/* 2. Toolbar & Filters (Fixed Height) */}
+      {/* Filters Toolbar */}
       <div className="flex-none flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between bg-zinc-900/30 p-2 rounded-xl border border-zinc-800/50 backdrop-blur-sm">
-        
-        {/* Left: Status Tabs */}
-        <Tabs defaultValue="all" value={activeTab} className="w-full xl:w-auto" onValueChange={setActiveTab}>
-            <TabsList className="bg-zinc-950 border border-zinc-800 h-8 p-0.5">
-                <TabsTrigger value="all" className="text-[11px] px-3 data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100 text-zinc-500">All</TabsTrigger>
-                <TabsTrigger value="live" className="text-[11px] px-3 data-[state=active]:bg-blue-500/10 data-[state=active]:text-blue-400 text-zinc-500">Live</TabsTrigger>
-                <TabsTrigger value="history" className="text-[11px] px-3 data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-400 text-zinc-500">Closed</TabsTrigger>
-                <TabsTrigger value="logs" className="text-[11px] px-3 data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-300 text-zinc-500">Logs</TabsTrigger>
-            </TabsList>
+        <Tabs value={activeTab} className="w-full xl:w-auto" onValueChange={setActiveTab}>
+          <TabsList className="bg-zinc-950 border border-zinc-800 h-8 p-0.5">
+            <TabsTrigger value="all" className="text-[11px] px-3 data-[state=active]:bg-zinc-800 text-zinc-500">All</TabsTrigger>
+            <TabsTrigger value="live" className="text-[11px] px-3 data-[state=active]:bg-blue-500/10 data-[state=active]:text-blue-400 text-zinc-500">Live</TabsTrigger>
+            <TabsTrigger value="history" className="text-[11px] px-3 data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-400 text-zinc-500">Closed</TabsTrigger>
+            <TabsTrigger value="logs" className="text-[11px] px-3 data-[state=active]:bg-zinc-800 text-zinc-500">Logs</TabsTrigger>
+          </TabsList>
         </Tabs>
 
-        {/* Right: Filters */}
         <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto items-center">
-            
-            {/* Search */}
-            <div className="relative flex-1 sm:w-56">
-                <Search className="absolute left-2.5 top-2 h-4 w-4 text-zinc-600" />
-                <Input 
-                    placeholder="Search Symbol, ID..." 
-                    className="pl-8 bg-zinc-950 border-zinc-800 text-xs h-8 focus-visible:ring-indigo-500/30" 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                />
-            </div>
+          <div className="relative flex-1 sm:w-56">
+            <Search className="absolute left-2.5 top-2 h-4 w-4 text-zinc-600" />
+            <Input 
+              placeholder="Search Symbol, ID..." 
+              className="pl-8 bg-zinc-950 border-zinc-800 text-xs h-8 focus-visible:ring-indigo-500/30"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger className="w-full sm:w-[130px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
+              <div className="flex items-center gap-2"><Wallet size={12} className="text-zinc-500"/><SelectValue placeholder="Source" /></div>
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
+              <SelectItem value="all">All Sources</SelectItem>
+              <SelectItem value="live">Real Money</SelectItem>
+              <SelectItem value="paper">Paper Trading</SelectItem>
+            </SelectContent>
+          </Select>
 
-            {/* Source Filter */}
-            <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                <SelectTrigger className="w-full sm:w-[130px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
-                    <div className="flex items-center gap-2">
-                        <Wallet size={12} className="text-zinc-500" />
-                        <SelectValue placeholder="Source" />
-                    </div>
-                </SelectTrigger>
-                <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
-                    <SelectItem value="all">All Sources</SelectItem>
-                    <SelectItem value="live">Real Money</SelectItem>
-                    <SelectItem value="paper">Paper Trading</SelectItem>
-                </SelectContent>
-            </Select>
+          <Select value={execFilter} onValueChange={setExecFilter}>
+             <SelectTrigger className="w-full sm:w-[130px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
+              <div className="flex items-center gap-2"><Bot size={12} className="text-zinc-500"/><SelectValue placeholder="Execution" /></div>
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
+              <SelectItem value="all">All Modes</SelectItem>
+              <SelectItem value="auto">Automated</SelectItem>
+              <SelectItem value="manual">Manual</SelectItem>
+            </SelectContent>
+          </Select>
 
-            {/* Execution Filter */}
-            <Select value={execFilter} onValueChange={setExecFilter}>
-                <SelectTrigger className="w-full sm:w-[130px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
-                    <div className="flex items-center gap-2">
-                        <Bot size={12} className="text-zinc-500" />
-                        <SelectValue placeholder="Execution" />
-                    </div>
-                </SelectTrigger>
-                <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
-                    <SelectItem value="all">All Modes</SelectItem>
-                    <SelectItem value="auto">Automated</SelectItem>
-                    <SelectItem value="manual">Manual</SelectItem>
-                </SelectContent>
-            </Select>
-
-            {hasActiveFilters && (
-                <Button variant="ghost" size="icon" onClick={clearFilters} className="h-8 w-8 text-zinc-500 hover:text-white hover:bg-zinc-800" title="Clear Filters">
-                    <X size={14} />
-                </Button>
-            )}
+          {hasActiveFilters && (
+            <Button variant="ghost" size="icon" onClick={clearFilters} className="h-8 w-8 text-zinc-500 hover:text-white hover:bg-zinc-800">
+              <X size={14} />
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* 3. Main Table Card (Fills remaining height) */}
+      {/* Data Table */}
       <Card className="flex-1 bg-zinc-950 py-0 border-zinc-800 shadow-lg overflow-hidden flex flex-col min-h-0">
         <CardContent className="p-0 flex-1 overflow-hidden h-full relative">
-            {/* Custom Table Wrapper for perfect Sticky Header & Scroll */}
-            <div className="absolute inset-0 overflow-auto">
-                <table className="w-full text-sm text-left caption-bottom">
-                    <TableHeader className="sticky top-0 z-20 bg-zinc-950 border-b border-zinc-800 shadow-sm">
-                        <TableRow className="border-none hover:bg-transparent">
-                            <TableHead className="w-[160px] text-zinc-400 font-medium pl-6 py-3 bg-zinc-950">Time</TableHead>
-                            <TableHead className="text-zinc-400 font-medium bg-zinc-950">Symbol</TableHead>
-                            <TableHead className="text-zinc-400 font-medium bg-zinc-950">Type</TableHead>
-                            <TableHead className="text-zinc-400 font-medium bg-zinc-950">Status</TableHead>
-                            <TableHead className="text-zinc-400 font-medium text-right bg-zinc-950">Entry / Exit</TableHead>
-                            <TableHead className="text-zinc-400 font-medium text-right pr-6 bg-zinc-950">P&L</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {loading ? (
-                            <TableRow>
-                                <TableCell colSpan={6} className="h-48 text-center text-zinc-500">
-                                    <div className="flex flex-col items-center justify-center gap-2">
-                                        <div className="h-5 w-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                                        <span className="text-xs">Fetching records...</span>
-                                    </div>
-                                </TableCell>
-                            </TableRow>
-                        ) : filteredTrades.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={6} className="h-64 text-center text-zinc-500">
-                                    <div className="flex flex-col items-center justify-center gap-3 opacity-60">
-                                        <Filter size={24} />
-                                        <p className="text-xs">No trades match your filters.</p>
-                                        <Button variant="link" onClick={clearFilters} className="text-indigo-400 text-xs h-auto p-0">
-                                            Clear filters
-                                        </Button>
-                                    </div>
-                                </TableCell>
-                            </TableRow>
-                        ) : (
-                            filteredTrades.map((trade) => (
-                                <TableRow key={trade._id} className="border-b border-zinc-800/40 hover:bg-zinc-900/40 transition-colors group">
-                                    <TableCell className="pl-6 py-3 align-top">
-                                        <div className="flex flex-col gap-0.5">
-                                            <span className="font-mono text-xs text-zinc-300">
-                                                {new Date(trade.entry.time).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                                            </span>
-                                            <span className="font-mono text-[10px] text-zinc-600">
-                                                {new Date(trade.entry.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
-                                        </div>
-                                    </TableCell>
-                                    
-                                    <TableCell className="align-top py-3">
-                                        <div className="flex flex-col gap-1">
-                                            <span className="font-bold text-sm text-zinc-200">{trade.symbol}</span>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] text-zinc-500 bg-zinc-900/50 border border-zinc-800/50 px-1.5 rounded-sm">
-                                                    {trade.setup_name}
-                                                </span>
-                                                <span className="text-[10px] text-zinc-600 font-mono">
-                                                    {trade.lots} Lot{trade.lots > 1 ? 's' : ''}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </TableCell>
-
-                                    <TableCell className="align-top py-3">
-                                        <div className="flex gap-2">
-                                            {trade.is_paper ? (
-                                                <Badge variant="secondary" className="bg-indigo-500/5 text-indigo-400/80 border-indigo-500/10 text-[9px] h-5 px-1.5 font-medium hover:bg-indigo-500/10">
-                                                    <FileText size={9} className="mr-1" /> PAPER
-                                                </Badge>
-                                            ) : (
-                                                <Badge variant="secondary" className="bg-amber-500/5 text-amber-400/80 border-amber-500/10 text-[9px] h-5 px-1.5 font-medium hover:bg-amber-500/10">
-                                                    <Zap size={9} className="mr-1" /> REAL
-                                                </Badge>
-                                            )}
-                                            {trade.execution_mode === "AUTO" ? (
-                                                <Badge variant="outline" className="bg-zinc-900 text-zinc-500 border-zinc-800 text-[9px] h-5 px-1.5 font-medium">
-                                                    <Bot size={9} className="mr-1" /> AUTO
-                                                </Badge>
-                                            ) : (
-                                                <Badge variant="outline" className="bg-zinc-900 text-zinc-500 border-zinc-800 text-[9px] h-5 px-1.5 font-medium">
-                                                    <User size={9} className="mr-1" /> MAN
-                                                </Badge>
-                                            )}
-                                        </div>
-                                    </TableCell>
-
-                                    <TableCell className="align-top py-3">
-                                        <StatusBadge status={trade.status} />
-                                    </TableCell>
-
-                                    <TableCell className="text-right align-top py-3">
-                                        <div className="flex flex-col items-end gap-0.5">
-                                            <span className="font-mono text-xs text-zinc-300">
-                                                {trade.entry.price.toFixed(2)}
-                                            </span>
-                                            {trade.exit?.price ? (
-                                                <span className="font-mono text-[10px] text-zinc-600 flex items-center gap-1">
-                                                    ➜ {trade.exit.price.toFixed(2)}
-                                                </span>
-                                            ) : (
-                                                <span className="text-[10px] text-blue-400/80 animate-pulse font-medium">Active</span>
-                                            )}
-                                        </div>
-                                    </TableCell>
-
-                                    <TableCell className="text-right pr-6 align-top py-3">
-                                        {trade.status === 'WIN' || trade.status === 'LOSS' ? (
-                                            <div className="flex flex-col items-end gap-0.5">
-                                                <span className={`font-bold font-mono text-sm ${trade.pnl > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                    {trade.pnl > 0 ? '+' : ''}{trade.pnl.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-                                                </span>
-                                                {trade.confidence_score && (
-                                                    <span className="text-[9px] text-zinc-700 font-medium">
-                                                        Conf: {trade.confidence_score.total}%
-                                                    </span>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <span className="text-zinc-800 font-mono text-sm">-</span>
-                                        )}
-                                    </TableCell>
-                                </TableRow>
-                            ))
-                        )}
-                    </TableBody>
-                </table>
-            </div>
+          <div className="absolute inset-0 overflow-auto">
+            <table className="w-full text-sm text-left caption-bottom">
+              <TableHeader className="sticky top-0 z-20 bg-zinc-950 border-b border-zinc-800 shadow-sm">
+                <TableRow className="border-none hover:bg-transparent">
+                  <TableHead className="w-[160px] text-zinc-400 font-medium pl-6 py-3 bg-zinc-950">Time</TableHead>
+                  <TableHead className="text-zinc-400 font-medium bg-zinc-950">Symbol</TableHead>
+                  <TableHead className="text-zinc-400 font-medium bg-zinc-950">Type</TableHead>
+                  <TableHead className="text-zinc-400 font-medium bg-zinc-950">Status</TableHead>
+                  <TableHead className="text-zinc-400 font-medium text-right bg-zinc-950">Entry / Exit</TableHead>
+                  <TableHead className="text-zinc-400 font-medium text-right pr-6 bg-zinc-950">P&L</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                   <TableRow><TableCell colSpan={6} className="h-48 text-center text-zinc-500">Loading...</TableCell></TableRow>
+                ) : filteredTrades.length === 0 ? (
+                   <TableRow><TableCell colSpan={6} className="h-64 text-center text-zinc-500">No trades found in system.</TableCell></TableRow>
+                ) : (
+                  filteredTrades.map((trade) => (
+                    <TableRow key={trade._id} className="border-b border-zinc-800/40 hover:bg-zinc-900/40 transition-colors group">
+                      <TableCell className="pl-6 py-3 align-top">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-mono text-xs text-zinc-300">
+                            {trade.entry?.time ? new Date(trade.entry.time).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '--'}
+                          </span>
+                          <span className="font-mono text-[10px] text-zinc-600">
+                             {trade.entry?.time ? new Date(trade.entry.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top py-3">
+                        <div className="flex flex-col gap-1">
+                          <span className="font-bold text-sm text-zinc-200">{trade.symbol}</span>
+                          <div className="flex items-center gap-2">
+                             <span className="text-[10px] text-zinc-500 bg-zinc-900/50 border border-zinc-800/50 px-1.5 rounded-sm">{trade.setup_name}</span>
+                             <span className="text-[10px] text-zinc-600 font-mono">{trade.lots} Lot{trade.lots > 1 ? 's' : ''}</span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top py-3">
+                         <div className="flex gap-2">
+                            {trade.is_paper ? 
+                              <Badge variant="secondary" className="bg-indigo-500/5 text-indigo-400/80 border-indigo-500/10 text-[9px] h-5 px-1.5"><FileText size={9} className="mr-1"/> PAPER</Badge> : 
+                              <Badge variant="secondary" className="bg-amber-500/5 text-amber-400/80 border-amber-500/10 text-[9px] h-5 px-1.5"><Zap size={9} className="mr-1"/> REAL</Badge>
+                            }
+                         </div>
+                      </TableCell>
+                      <TableCell className="align-top py-3"><StatusBadge status={trade.status} /></TableCell>
+                      <TableCell className="text-right align-top py-3">
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className="font-mono text-xs text-zinc-300">{trade.entry?.price?.toFixed(2)}</span>
+                          {trade.exit?.price ? 
+                            <span className="font-mono text-[10px] text-zinc-600">{trade.exit.price.toFixed(2)}</span> : 
+                            <span className="text-[10px] text-blue-400/80 animate-pulse font-medium">Active</span>
+                          }
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right pr-6 align-top py-3">
+                        {['WIN', 'LOSS'].includes(trade.status) ? (
+                           <div className="flex flex-col items-end gap-0.5">
+                              <span className={`font-bold font-mono text-sm ${trade.pnl > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {trade.pnl > 0 ? '+' : ''}{trade.pnl?.toLocaleString()}
+                              </span>
+                              <span className="text-[9px] text-zinc-700 font-medium">Score: {trade.confidence_score?.total}/{trade.confidence_score?.max || 100}</span>
+                           </div>
+                        ) : <span className="text-zinc-800 font-mono text-sm">-</span>}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </table>
+          </div>
         </CardContent>
       </Card>
     </div>
