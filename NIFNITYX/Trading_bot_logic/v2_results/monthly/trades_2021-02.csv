@@ -1,4 +1,0 @@
-trade_id,timestamp,action,price,strategy,lots,status,exit_price,exit_time,exit_reason,pnl
-13,2021-02-12 13:45:00+05:30,BUY,15139.55,trend_following,1,CLOSED,15125.75,2021-02-12 14:00:00+05:30,STOP_LOSS,-1034.9999999999454
-14,2021-02-23 10:30:00+05:30,SELL,14846.5,trend_following,1,CLOSED,14836.5,2021-02-25 09:45:00+05:30,STOP_LOSS,750.0
-15,2021-02-24 09:45:00+05:30,SELL,14781.8,trend_following,1,CLOSED,14793.8,2021-02-24 10:00:00+05:30,STOP_LOSS,-900.0

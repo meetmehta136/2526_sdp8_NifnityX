@@ -1,3 +1,0 @@
-trade_id,timestamp,action,price,strategy,lots,status,exit_price,exit_time,exit_reason,pnl
-19,2021-05-03 14:30:00+05:30,SELL,14662.95,trend_following,1,CLOSED,14652.95,2021-05-04 10:45:00+05:30,STOP_LOSS,750.0
-20,2021-05-27 14:15:00+05:30,BUY,15293.35,trend_following,1,OPEN,,,,

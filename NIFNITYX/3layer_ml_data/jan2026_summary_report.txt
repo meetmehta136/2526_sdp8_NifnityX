@@ -1,0 +1,13 @@
+================================================================================
+JANUARY 2026 TESTING REPORT
+================================================================================
+
+Test Date: 2026-02-06 19:55:25
+Data File: data/NIFTY_1MIN_jan2026.csv
+ML Model: Enabled
+
+Total Trades: 6
+Win Rate: 33.3%
+Total P&L: ₹+10,251
+Return: +10.25%
+Profit Factor: 4.64

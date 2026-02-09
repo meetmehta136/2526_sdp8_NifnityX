@@ -17,10 +17,10 @@ import pyotp
 
 # ==================== YOUR CREDENTIALS ====================
 
-API_KEY = ""
-CLIENT_CODE = ""
-PASSWORD = ""
-TOTP_SECRET = ""
+API_KEY = "MXbo90P4"
+CLIENT_CODE = "AAAM659971"
+PASSWORD = "9778"
+TOTP_SECRET = "PI3IKVTFHM7KEGYCASLR237UVE"
 
 # ========================================================
 
@@ -50,8 +50,8 @@ def generate_trading_minutes(date):
     return pd.date_range(start=day_start, end=day_end, freq='1min', tz='Asia/Kolkata')
 
 # ==================== DOWNLOAD LOOP (SMALLER CHUNKS FOR MAX DATA) ====================
-start_date = datetime(2015, 1, 1)
-end_date = datetime(2026, 1, 1)  # Covers up to Dec 2025
+start_date = datetime(2026, 1, 1)
+end_date = datetime(2026, 1, 31)  # Covers up to Dec 2025
 
 current = start_date
 chunk_days = 15  # Safe chunk size – avoids API "no data" on large ranges, maximizes retrieval

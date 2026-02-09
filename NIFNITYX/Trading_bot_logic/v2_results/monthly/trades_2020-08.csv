@@ -1,2 +1,0 @@
-trade_id,timestamp,action,price,strategy,lots,status,exit_price,exit_time,exit_reason,pnl
-10,2020-08-21 14:45:00+05:30,BUY,11384.8,trend_following,1,CLOSED,11375.65,2020-08-21 15:00:00+05:30,STOP_LOSS,-686.2499999999727

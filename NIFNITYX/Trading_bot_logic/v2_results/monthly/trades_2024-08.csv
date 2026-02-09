@@ -1,5 +1,0 @@
-trade_id,timestamp,action,price,strategy,lots,status,exit_price,exit_time,exit_reason,pnl
-586,2024-08-08 09:45:00+05:30,BUY,24205.4,trend_following,5,CLOSED,24188.95,2024-08-08 10:00:00+05:30,STOP_LOSS,-6168.750000000273
-587,2024-08-12 15:00:00+05:30,BUY,24345.7,trend_following,2,CLOSED,24252.15,2024-08-13 12:45:00+05:30,STOP_LOSS,-14032.49999999989
-588,2024-08-20 15:15:00+05:30,BUY,24672.85,trend_following,4,OPEN,,,,
-589,2024-08-20 15:30:00+05:30,BUY,24672.85,trend_following,4,OPEN,,,,

@@ -1,0 +1,40 @@
+# ===============================
+# CORE NUMERICAL (VERY IMPORTANT)
+# ===============================
+numpy==1.26.4
+pandas==2.2.3
+
+# ===============================
+# MACHINE LEARNING
+# ===============================
+scikit-learn==1.5.2
+scipy==1.13.1
+joblib==1.4.2
+
+# ===============================
+# XGBOOST (PRIMARY MODEL)
+# ===============================
+xgboost==2.1.1
+
+# ===============================
+# PYTORCH (CPU VERSION - STABLE)
+# ===============================
+torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1
+
+# ===============================
+# DATA PROCESSING
+# ===============================
+python-dateutil==2.9.0.post0
+pytz==2024.2
+
+# ===============================
+# UTILITIES
+# ===============================
+tqdm==4.66.5
+requests>=2.31.0
+
+# Optional for advanced features
+ python-telegram-bot  # For Telegram alerts
+ twilio  # For WhatsApp/SMS alerts
