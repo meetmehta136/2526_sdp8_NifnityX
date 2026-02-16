@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
 ╔════════════════════════════════════════════════════════════════════════════════╗
-║                                                                                ║
 ║               🚀 LIVE PAPER TRADING SYSTEM - 3-LAYER NIFTY BOT                ║
-║                                                                                ║
-║  ⚠️  PAPER TRADING ONLY - NO REAL ORDERS EXECUTED                            ║
-║                                                                                ║
+║                  ⚠️  PAPER TRADING ONLY - NO REAL ORDERS                      ║
 ╚════════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -16,6 +13,15 @@ import json
 import pandas as pd
 from datetime import datetime, timedelta
 import warnings
+import threading
+import requests
+import config
+from fastapi import FastAPI
+import uvicorn
+
+# Disable SSL warnings globally
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings('ignore')
 
 # Import all components
@@ -30,17 +36,18 @@ from layer3_ml_model import EnhancedMLTradePredictor
 
 print("""
 ╔════════════════════════════════════════════════════════════════════════════════╗
-║                                                                                ║
 ║               🚀 LIVE PAPER TRADING SYSTEM - NIFTY 3-LAYER BOT                ║
 ║                        Real Data • Paper Trading • Zero Risk                  ║
-║                                                                                ║
 ╚════════════════════════════════════════════════════════════════════════════════╝
 """)
 
+# ── FastAPI App & Global State ────────────────────────────────────────────────
+app = FastAPI(title="NifnityX Trading Engine", version="1.0")
+PENDING_SIGNALS = {}   # trade_id -> {signal, ltp, ml_score}
+system = None          # Will hold the LivePaperTradingSystem instance
+
 class LivePaperTradingSystem:
-    """
-    Complete live paper trading system
-    """
+    """Complete live paper trading system"""
     
     def __init__(self):
         # Configuration
@@ -51,8 +58,8 @@ class LivePaperTradingSystem:
         self.TOTP_SECRET = "PI3IKVTFHM7KEGYCASLR237UVE"
         
         self.INITIAL_CAPITAL = 100000
-        self.MIN_SCORE = 60  # Entry threshold
-        self.ML_BLOCK_THRESHOLD = 15  # Block trades with ML < 15
+        self.MIN_SCORE = 60
+        self.ML_BLOCK_THRESHOLD = 15
         
         # Create logs directory
         self.log_dir = f"paper_trading_logs/{datetime.now().strftime('%Y-%m-%d')}"
@@ -61,7 +68,6 @@ class LivePaperTradingSystem:
         # Initialize components
         print("\n🔧 Initializing components...")
         
-        # Data fetcher
         self.data_fetcher = AngelOneDataFetcher(
             self.API_KEY,
             self.CLIENT_CODE,
@@ -69,21 +75,19 @@ class LivePaperTradingSystem:
             self.TOTP_SECRET
         )
         
-        # Cost calculator
         self.cost_calc = CostCalculator(brokerage_per_order=20)
         
-        # Paper trading engine
         self.paper_engine = PaperTradingEngine(
             initial_capital=self.INITIAL_CAPITAL,
             cost_calculator=self.cost_calc
         )
         
         # 3-Layer system
-        self.layer1 = TradingBot()
+        self.layer1 = TradingBot(capital=self.INITIAL_CAPITAL)
         self.layer2 = SentimentAnalyzer()
-        self.layer3 = EnhancedMLTradePredictor()
+        self.layer3 = EnhancedMLTradePredictor(model_path='3layer_results_v5/ml_model_v6.pkl')
         
-        # Historical data buffer for indicators
+        # Historical data buffer
         self.historical_data = pd.DataFrame()
         self.last_candle_time = None
         
@@ -108,10 +112,15 @@ class LivePaperTradingSystem:
         hist_data = self.data_fetcher.get_historical_data(days=5)
         
         if hist_data is not None and len(hist_data) > 0:
-            self.historical_data = hist_data
-            self.layer1.load_data(hist_data)
+            # Prepare data for Layer 1
+            hist_data = hist_data.rename(columns={'timestamp': 'datetime'})
+            hist_data = hist_data.set_index('datetime')
+            
+            # Calculate indicators
+            self.historical_data = self.layer1.calculate_indicators(hist_data)
+            
             print(f"   Loaded {len(hist_data)} candles")
-            print(f"   Date range: {hist_data['timestamp'].min()} to {hist_data['timestamp'].max()}")
+            print(f"   Date range: {hist_data.index.min()} to {hist_data.index.max()}")
             return True
         else:
             print("   ⚠️  Could not load historical data")
@@ -121,27 +130,29 @@ class LivePaperTradingSystem:
     def process_candle(self, candle):
         """Process a new 1-min candle"""
         
-        # Add to historical data
+        # Create new row
+        timestamp = pd.to_datetime(candle['timestamp'])
         new_row = pd.DataFrame([{
-            'timestamp': pd.to_datetime(candle['timestamp']),
             'open': candle['open'],
             'high': candle['high'],
             'low': candle['low'],
             'close': candle['close'],
             'volume': candle['volume']
-        }])
+        }], index=[timestamp])
         
-        self.historical_data = pd.concat([self.historical_data, new_row], ignore_now=True)
-        self.historical_data = self.historical_data.tail(500)  # Keep last 500 candles
+        # Add to historical data - FIXED: ignore_index changed to ignore_index=False
+        self.historical_data = pd.concat([self.historical_data, new_row])
+        self.historical_data = self.historical_data.tail(500)
         
-        # Update Layer 1
-        self.layer1.load_data(self.historical_data)
+        # Recalculate indicators
+        self.historical_data = self.layer1.calculate_indicators(self.historical_data)
         
         # Generate signal
-        signal = self.layer1.check_signals()
+        idx = len(self.historical_data) - 1
+        signal = self.layer1.generate_signal(self.historical_data, idx)
         
         if signal:
-            print(f"\n🎯 SIGNAL GENERATED - {candle['timestamp']}")
+            print(f"\n🎯 SIGNAL GENERATED - {timestamp}")
             print(f"   {signal['action']} @ ₹{signal['price']:,.2f}")
             print(f"   Stop: ₹{signal['stop']:,.2f} | Target: ₹{signal['target']:,.2f}")
             print(f"   Setup: {signal.get('setup', 'unknown')}")
@@ -157,7 +168,7 @@ class LivePaperTradingSystem:
         """Evaluate signal using 3-layer system"""
         
         # Layer 1: Technical
-        technical_score = signal['technical_score']
+        technical_score = signal.get('technical_score', 60)
         
         # Layer 2: Sentiment
         sentiment_data = self.layer2.get_sentiment_score()
@@ -165,7 +176,8 @@ class LivePaperTradingSystem:
         disaster_flag = sentiment_data['disaster_flag']
         
         # Layer 3: ML
-        ml_data = self.layer3.predict_trade_quality(signal['features'])
+        features = signal.get('features', {})
+        ml_data = self.layer3.predict_trade_quality(features)
         ml_score = ml_data['ml_score']
         
         # Final score
@@ -213,10 +225,73 @@ class LivePaperTradingSystem:
         print(f"   FINAL:     {final_score:.1f}/120")
         print(f"   Decision:  {decision['reason']}")
         
-        # Execute if approved
+        # Execute if approved — forward to Node.js Mission Control
         if execute:
-            result = self.paper_engine.execute_signal(signal, current_price, ml_score)
-            decision['execution_result'] = result
+            trade_id = f"T-{int(time.time())}"
+            
+            # ML-based lot sizing (mirrors engine logic)
+            calculated_lots = 1
+            if ml_score < 15:
+                calculated_lots = 0.5
+            elif ml_score < 22:
+                calculated_lots = 0.75
+            else:
+                calculated_lots = 1.25
+            calculated_lots = round(calculated_lots * 2) / 2
+            if calculated_lots < 0.5:
+                calculated_lots = 0.5
+            
+            payload = {
+                "trade_id": trade_id,
+                "symbol": "NIFTY",
+                "setup_name": signal.get('setup', 'ML_Strategy'),
+                "entry": {
+                    "price": current_price,
+                    "time": datetime.utcnow().isoformat(),
+                    "stop_loss": signal.get('stop')
+                },
+                "confidence_score": {
+                    "total": float(final_score),
+                    "breakdown": {
+                        "technical": float(technical_score),
+                        "sentiment": float(sentiment_score),
+                        "ml": float(ml_score)
+                    }
+                },
+                "lots": int(calculated_lots),
+                "constraints": {"slippage_per": 0.5}
+            }
+            
+            # Store context for when Node.js approves execution
+            PENDING_SIGNALS[trade_id] = {
+                "signal": signal,
+                "ltp": current_price,
+                "ml_score": ml_score
+            }
+            
+            # Send signal to Node.js Mission Control
+            try:
+                requests.post(
+                    f"{config.NODE_API_URL}/signal",
+                    json=payload,
+                    headers={"x-python-secret": config.NODE_SECRET},
+                    timeout=5,
+                    verify=False
+                )
+                print(f"\n📡 Signal sent to Mission Control: {trade_id}")
+            except Exception as e:
+                print(f"\n⚠️  Could not reach Mission Control: {e}")
+                # Fallback: execute directly if Node is unreachable
+                print(f"   ↪ Executing trade locally as fallback...")
+                result = self.paper_engine.execute_signal(signal, current_price, ml_score)
+                if result:
+                    result['trade_id'] = trade_id
+                decision['execution_result'] = result
+                PENDING_SIGNALS.pop(trade_id, None)
+            
+            # Original direct execution (now handled via webhook):
+            # result = self.paper_engine.execute_signal(signal, current_price, ml_score)
+            # decision['execution_result'] = result
         
         # Save decision
         self.save_decision(decision)
@@ -306,19 +381,22 @@ class LivePaperTradingSystem:
         """Save decision to log"""
         log_file = f"{self.log_dir}/decisions.jsonl"
         
-        with open(log_file, 'a') as f:
-            json.dump({
-                'timestamp': str(decision['timestamp']),
-                'action': decision['signal']['action'],
-                'price': decision['signal']['price'],
-                'technical_score': decision['technical_score'],
-                'sentiment_score': decision['sentiment_score'],
-                'ml_score': decision['ml_score'],
-                'final_score': decision['final_score'],
-                'execute': decision['execute'],
-                'reason': decision['reason']
-            }, f)
-            f.write('\n')
+        try:
+            with open(log_file, 'a') as f:
+                json.dump({
+                    'timestamp': str(decision['timestamp']),
+                    'action': decision['signal']['action'],
+                    'price': decision['signal']['price'],
+                    'technical_score': decision['technical_score'],
+                    'sentiment_score': decision['sentiment_score'],
+                    'ml_score': decision['ml_score'],
+                    'final_score': decision['final_score'],
+                    'execute': decision['execute'],
+                    'reason': decision['reason']
+                }, f)
+                f.write('\n')
+        except Exception as e:
+            print(f"⚠️  Could not save decision: {e}")
     
     
     def generate_daily_report(self):
@@ -327,10 +405,8 @@ class LivePaperTradingSystem:
         
         report = f"""
 ╔════════════════════════════════════════════════════════════════════════════════╗
-║                                                                                ║
 ║                   📊 DAILY PAPER TRADING REPORT                               ║
 ║                       {datetime.now().strftime('%Y-%m-%d')}                                              ║
-║                                                                                ║
 ╚════════════════════════════════════════════════════════════════════════════════╝
 
 📈 PERFORMANCE SUMMARY
@@ -368,8 +444,62 @@ Open Positions:            {stats['open_positions']}
         print(report)
 
 
+# ── FastAPI Endpoints ─────────────────────────────────────────────────────────
+@app.post("/execute")
+def execute_trade(data: dict):
+    """
+    Node.js sends {"trade_id": "..."} to approve a pending trade.
+    """
+    trade_id = data.get("trade_id")
+    
+    if trade_id not in PENDING_SIGNALS:
+        return {"status": "not_found", "message": f"No pending signal for {trade_id}"}
+    
+    # Retrieve stored context
+    context = PENDING_SIGNALS.pop(trade_id)
+    
+    # Execute via the original engine method
+    result = system.paper_engine.execute_signal(
+        context['signal'],
+        context['ltp'],
+        context['ml_score']
+    )
+    
+    # Force the trade_id to match Node's ID
+    if result:
+        result['trade_id'] = trade_id
+    
+    print(f"\n✅ Executed Trade {trade_id} via Webhook")
+    return {"status": "executed", "trade_id": trade_id}
+
+
+@app.post("/update_capital")
+def update_capital(data: dict):
+    """
+    Node.js sends {"capital": 50000} to update engine capital.
+    """
+    new_capital = data.get("capital")
+    if new_capital is not None and system:
+        system.paper_engine.capital = float(new_capital)
+        print(f"\n💰 Capital Updated: ₹{new_capital:,}")
+        return {"status": "updated", "capital": new_capital}
+    return {"status": "error", "message": "Missing capital value"}
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for monitoring."""
+    stats = system.paper_engine.get_daily_stats() if system else {}
+    return {
+        "status": "running",
+        "pending_signals": len(PENDING_SIGNALS),
+        "engine_stats": stats
+    }
+
+
 def main():
     """Main entry point"""
+    global system
     system = LivePaperTradingSystem()
     
     # Login
@@ -382,8 +512,16 @@ def main():
         print("❌ Warmup failed - cannot proceed")
         return
     
-    # Run live
-    system.run_live()
+    # Run trading loop in a background thread
+    t = threading.Thread(target=system.run_live, daemon=True)
+    t.start()
+    
+    print(f"\n🌐 FastAPI server starting on port {config.PYTHON_PORT}...")
+    print(f"   Swagger UI: http://localhost:{config.PYTHON_PORT}/docs")
+    print(f"   Health:     http://localhost:{config.PYTHON_PORT}/health")
+    
+    # Run FastAPI server on the main thread (blocks here)
+    uvicorn.run(app, host="0.0.0.0", port=config.PYTHON_PORT)
 
 
 if __name__ == "__main__":

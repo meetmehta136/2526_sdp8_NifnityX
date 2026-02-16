@@ -8,6 +8,8 @@ import json
 import pandas as pd
 from datetime import datetime
 import os
+import requests
+import config
 
 class PaperTradingEngine:
     """
@@ -53,6 +55,34 @@ class PaperTradingEngine:
             return False, f"Insufficient capital (need ₹{required_margin:,})"
         
         return True, "OK"
+    
+    
+    def _send_update_to_node(self, trade_data):
+        """Send trade close update to Node.js Mission Control"""
+        try:
+            payload = {
+                "trade_id": trade_data.get('trade_id', trade_data.get('signal_id')),
+                "status": "WIN" if trade_data.get('net_pnl', 0) > 0 else "LOSS",
+                "exit": {
+                    "price": trade_data.get('exit_price'),
+                    "time": str(trade_data.get('exit_time')),
+                    "reason": trade_data.get('exit_reason')
+                },
+                "pnl": trade_data.get('net_pnl', 0),
+                "pnl_percentage": (
+                    trade_data.get('net_pnl', 0) / 
+                    (trade_data.get('entry_price', 1) * trade_data.get('lots', 1) * 75)
+                ) * 100
+            }
+            requests.post(
+                f"{config.NODE_API_URL}/update",
+                json=payload,
+                headers={"x-python-secret": config.NODE_SECRET},
+                timeout=5
+            )
+            print(f"📡 Trade update sent to Mission Control: {payload['trade_id']} → {payload['status']}")
+        except Exception as e:
+            print(f"⚠️  Could not send update to Node.js: {e}")
     
     
     def execute_signal(self, signal, current_price, ml_score=20):
@@ -223,6 +253,9 @@ class PaperTradingEngine:
         self.closed_trades.append(pos)
         self.open_positions.pop(position_index)
         self.total_trades_completed += 1
+        
+        # Notify Node.js Mission Control
+        self._send_update_to_node(pos)
         
         emoji = "✅" if pos['won'] else "❌"
         print(f"\n{emoji} POSITION CLOSED - {exit_reason}")

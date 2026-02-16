@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Angel One Live Data Fetcher
+Angel One Live Data Fetcher - SSL FIXED
 PAPER TRADING ONLY - NO ORDER EXECUTION
 """
 
@@ -10,6 +10,12 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 import json
+import warnings
+import urllib3
+
+# Disable SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings('ignore')
 
 class AngelOneDataFetcher:
     """
@@ -34,6 +40,10 @@ class AngelOneDataFetcher:
         # 🔒 SAFETY: Paper trading mode (CANNOT BE DISABLED)
         self.PAPER_TRADING_MODE = True
         self.ORDER_PLACEMENT_DISABLED = True
+        
+        # Create session with retry logic
+        self.session = requests.Session()
+        self.session.verify = False  # Disable SSL verification
         
         print("🔒 SAFETY: Paper Trading Mode - NO REAL ORDERS POSSIBLE")
         print("✅ Angel One Data Fetcher initialized (READ-ONLY)")
@@ -66,10 +76,11 @@ class AngelOneDataFetcher:
                 'totp': totp_code
             }
             
-            response = requests.post(url, json=payload, headers=headers)
+            # Use session with SSL disabled
+            response = self.session.post(url, json=payload, headers=headers, timeout=10)
             data = response.json()
             
-            if data['status']:
+            if data.get('status'):
                 self.auth_token = data['data']['jwtToken']
                 self.feed_token = data['data']['feedToken']
                 print(f"✅ Logged in successfully")
@@ -79,6 +90,10 @@ class AngelOneDataFetcher:
                 print(f"❌ Login failed: {data.get('message', 'Unknown error')}")
                 return False
         
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Network error: {e}")
+            print(f"   Tip: Check your internet connection")
+            return False
         except Exception as e:
             print(f"❌ Login error: {e}")
             return False
@@ -107,10 +122,10 @@ class AngelOneDataFetcher:
                 "symboltoken": self.nifty_token
             }
             
-            response = requests.post(url, json=payload, headers=headers)
+            response = self.session.post(url, json=payload, headers=headers, timeout=10)
             data = response.json()
             
-            if data['status']:
+            if data.get('status'):
                 ltp = float(data['data']['ltp'])
                 return ltp
             else:
@@ -151,10 +166,10 @@ class AngelOneDataFetcher:
                 "todate": to_date.strftime("%Y-%m-%d %H:%M")
             }
             
-            response = requests.post(url, json=payload, headers=headers)
+            response = self.session.post(url, json=payload, headers=headers, timeout=10)
             data = response.json()
             
-            if data['status'] and data['data']:
+            if data.get('status') and data.get('data'):
                 # Last complete candle
                 candle = data['data'][-1]
                 
@@ -202,16 +217,17 @@ class AngelOneDataFetcher:
                 "todate": to_date.strftime("%Y-%m-%d %H:%M")
             }
             
-            response = requests.post(url, json=payload, headers=headers)
+            response = self.session.post(url, json=payload, headers=headers, timeout=15)
             data = response.json()
             
-            if data['status'] and data['data']:
+            if data.get('status') and data.get('data'):
                 df = pd.DataFrame(data['data'], 
                                 columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
                 df = df.sort_values('timestamp')
                 return df
             else:
+                print(f"⚠️  No historical data: {data.get('message', 'Unknown error')}")
                 return None
         
         except Exception as e:
@@ -224,7 +240,8 @@ class AngelOneDataFetcher:
         🔒 DISABLED FOR PAPER TRADING
         This function CANNOT execute real orders
         """
-        raise Exception("🚨 ORDER PLACEMENT DISABLED - PAPER TRADING MODE ONLY")
+        print("❌ SAFETY LOCK: Real Order Placement is DISABLED.")
+        return None
     
     
     def is_market_open(self):
