@@ -4,7 +4,8 @@ import {
   loginUser,
   logoutUser,
   getUserProfile,
-  updateStrategySettings // <--- Import
+  updateStrategySettings,
+  updateCapital
 } from "../controllers/authController.js";
 import { protect } from "../middlewares/authMiddleware.js";
 
@@ -15,5 +16,6 @@ router.post("/login", loginUser);
 router.post("/logout", logoutUser);
 router.get("/me", protect, getUserProfile);
 router.put("/strategy", protect, updateStrategySettings);
+router.put("/capital", protect, updateCapital);
 
 export default router;

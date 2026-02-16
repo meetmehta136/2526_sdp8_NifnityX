@@ -107,4 +107,43 @@ const updateStrategySettings = async (req, res) => {
   }
 };
 
-export { registerUser, loginUser, logoutUser, getUserProfile, updateStrategySettings };
+// @desc    Update Trading Capital
+// @route   PUT /api/auth/capital
+// @access  Private
+const updateCapital = async (req, res) => {
+  try {
+    const { capital } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (user) {
+      user.settings.initial_capital = Number(capital);
+      await user.save();
+
+      // Webhook to Python Engine
+      const pythonUrl = process.env.PYTHON_EXECUTION_URL;
+      if (pythonUrl) {
+        try {
+          // Fire and forget - don't block response
+          axios.post(pythonUrl, {
+            action: "UPDATE_CAPITAL",
+            amount: Number(capital),
+            user_id: user._id,
+          });
+        } catch (e) {
+          console.error("Failed to sync capital with Python:", e.message);
+        }
+      }
+
+      res.json({
+        message: "Capital updated successfully",
+        settings: user.settings,
+      });
+    } else {
+      res.status(404).json({ message: "User not found" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export { registerUser, loginUser, logoutUser, getUserProfile, updateStrategySettings, updateCapital };

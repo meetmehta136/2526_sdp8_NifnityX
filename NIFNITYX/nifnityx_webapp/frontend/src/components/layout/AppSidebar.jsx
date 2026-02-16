@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -30,6 +31,8 @@ import { ChevronsUpDown, LogOut, User, PanelLeft } from "lucide-react";
 import Logo from "@/components/ui/Logo";
 import { navItems } from "@/config/nav";
 import api from "@/lib/api";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 
 export function AppSidebar({ user, ...props }) {
   const location = useLocation();
@@ -45,6 +48,9 @@ export function AppSidebar({ user, ...props }) {
       console.error("Logout failed", error);
     }
   };
+
+
+
 
   return (
     <Sidebar
@@ -100,64 +106,64 @@ export function AppSidebar({ user, ...props }) {
       </SidebarHeader>
 
       {/* Content Section */}
-      <SidebarContent 
-        className="bg-sidebar pt-4 transition-all duration-300 cursor-default" 
+      <SidebarContent
+        className="bg-sidebar pt-4 transition-all duration-300 cursor-default"
         onClick={(e) => e.stopPropagation()}
       >
         <SidebarMenu className="gap-2 px-2">
           {navItems
-            .filter((item) => item.title !== "Analytics") // Filter out Analytics
             .map((item) => {
-            const isActive = location.pathname === item.url;
-            return (
-              <SidebarMenuItem key={item.title}>
-                <TooltipProvider delayDuration={0}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        // Added 'group/menu-item' to strictly scope hover effects to this button only
-                        className={`h-10 w-full justify-start transition-all duration-200 group-data-[collapsible=icon]:justify-center px-3 group/menu-item ${
-                          isActive
+              const isActive = location.pathname === item.url;
+              return (
+                <SidebarMenuItem key={item.title}>
+                  <TooltipProvider delayDuration={0}>
+                    <Tooltip key={isCollapsed}>
+                      <TooltipTrigger asChild>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          // Added 'group/menu-item' to strictly scope hover effects to this button only
+                          className={`h-10 w-full justify-start transition-all duration-200 group-data-[collapsible=icon]:justify-center px-3 group/menu-item ${isActive
                             ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold shadow-sm"
                             : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-                        }`}
-                      >
-                        <Link to={item.url} className="flex items-center gap-3">
-                          <item.icon
-                            // Changed to 'group-hover/menu-item' so it DOES NOT react to the parent sidebar hover
-                            className={`size-5 transition-colors duration-200 ${
-                              isActive
+                            }`}
+                        >
+                          <Link to={item.url} className="flex items-center gap-3">
+                            <item.icon
+                              // Changed to 'group-hover/menu-item' so it DOES NOT react to the parent sidebar hover
+                              className={`size-5 transition-colors duration-200 ${isActive
                                 ? "text-primary"
                                 : "text-muted-foreground group-hover/menu-item:text-foreground"
-                            }`}
-                          />
-                          <span className="text-[14px] group-data-[collapsible=icon]:hidden font-medium">
-                            {item.title}
-                          </span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </TooltipTrigger>
-                    
-                    {/* Tooltip only shown when collapsed */}
-                    {isCollapsed && (
-                      <TooltipContent
-                        side="right"
-                        sideOffset={10}
-                        // Fixed: Added z-[100] to prevent being hidden, and explicit bg colors for dark mode consistency
-                        className="z-[100] bg-zinc-950 text-zinc-100 border border-zinc-800 rounded-md shadow-xl px-3 py-1.5 text-xs font-medium"
-                      >
-                        {item.title}
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                </TooltipProvider>
-              </SidebarMenuItem>
-            );
-          })}
+                                }`}
+                            />
+                            <span className="text-[14px] group-data-[collapsible=icon]:hidden font-medium">
+                              {item.title}
+                            </span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </TooltipTrigger>
+
+                      {/* Tooltip only shown when collapsed */}
+                      {isCollapsed && (
+                        <TooltipContent
+                          side="right"
+                          sideOffset={10}
+                          // Fixed: Added z-[100] to prevent being hidden, and explicit bg colors for dark mode consistency
+                          className="z-[100] bg-zinc-950 text-zinc-100 border border-zinc-800 rounded-md shadow-xl px-3 py-1.5 text-xs font-medium"
+                        >
+                          {item.title}
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
+                </SidebarMenuItem>
+              );
+            })}
         </SidebarMenu>
+
       </SidebarContent>
+
+
 
       {/* Footer Section */}
       <SidebarFooter
@@ -211,9 +217,11 @@ export function AppSidebar({ user, ...props }) {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-sidebar-border mx-1" />
-                <DropdownMenuItem className="focus:bg-sidebar-accent focus:text-sidebar-accent-foreground cursor-pointer rounded-md my-0.5">
-                  <User className="mr-2 h-4 w-4" />
-                  Account
+                <DropdownMenuItem asChild className="focus:bg-sidebar-accent focus:text-sidebar-accent-foreground cursor-pointer rounded-md my-0.5">
+                  <Link to="/account" className="flex items-center w-full">
+                    <User className="mr-2 h-4 w-4" />
+                    Account
+                  </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-sidebar-border mx-1" />
                 <DropdownMenuItem
@@ -229,6 +237,6 @@ export function AppSidebar({ user, ...props }) {
         </SidebarMenu>
       </SidebarFooter>
       <SidebarRail className="hover:after:bg-sidebar-border" />
-    </Sidebar>
+    </Sidebar >
   );
 }

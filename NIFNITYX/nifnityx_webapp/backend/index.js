@@ -8,6 +8,9 @@ import connectDB from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import brokerRoutes from "./routes/brokerRoutes.js";
 import tradeRoutes from "./routes/tradeRoutes.js";
+import angelOneRoutes from "./routes/angelOneRoutes.js";
+import marketRoutes from "./routes/marketRoutes.js";
+import { angelOneService } from "./utils/angelOneService.js";
 
 dotenv.config();
 connectDB();
@@ -39,14 +42,16 @@ app.use(
   })
 );
 
-app.use(express.json()); 
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/broker", brokerRoutes);
-app.use("/api/trades", tradeRoutes);
+app.use("/api/trade", tradeRoutes);
+app.use("/api/angel", angelOneRoutes);
+app.use("/api/market", marketRoutes);
 
 app.get("/", (req, res) => {
   res.send("NifnityX API is running...");
@@ -75,4 +80,6 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📡 Socket.io Active`);
+  // Initialize Angel One Service (Download Scrip Master)
+  angelOneService.initialize();
 });

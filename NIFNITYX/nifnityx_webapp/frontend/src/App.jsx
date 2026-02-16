@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { Toaster } from "@/components/ui/sonner"; 
+import { Toaster } from "@/components/ui/sonner";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
-import BrokerKeys from "@/pages/BrokerKeys"; 
+import BrokerKeys from "@/pages/BrokerKeys";
 import Dashboard from "@/pages/Dashboard";
-import TradeHistory from "@/pages/TradeHistory"; 
-import StrategyTuner from "@/pages/StrategyTuner"; // <--- Import New Page
+import TradeHistory from "@/pages/TradeHistory";
+import StrategyTuner from "@/pages/StrategyTuner";
+import Account from "@/pages/Dashboard/Account";
+import Analytics from "@/pages/Dashboard/Analytics"; // <--- Import New Page
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import api from "@/lib/api";
 
@@ -18,7 +20,7 @@ const ComingSoon = ({ title }) => (
 );
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(null); 
+  const [isAuthenticated, setIsAuthenticated] = useState(null);
   const [user, setUser] = useState(null);
 
   const checkAuth = useCallback(async () => {
@@ -26,7 +28,7 @@ function App() {
       const { data } = await api.get("/auth/me");
       setUser(data);
       setIsAuthenticated(true);
-      return true; 
+      return true;
     } catch (error) {
       setIsAuthenticated(false);
       setUser(null);
@@ -48,9 +50,9 @@ function App() {
         <Route
           path="/login"
           element={
-            isAuthenticated ? 
-            <Navigate to="/dashboard" replace /> : 
-            <Login onLoginSuccess={checkAuth} />
+            isAuthenticated ?
+              <Navigate to="/dashboard" replace /> :
+              <Login onLoginSuccess={checkAuth} />
           }
         />
         <Route
@@ -62,9 +64,10 @@ function App() {
         {isAuthenticated && (
           <Route element={<DashboardLayout user={user} />}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/analytics" element={<ComingSoon title="Analytics" />} />
-            <Route path="/history" element={<TradeHistory />} /> 
-            <Route path="/strategy" element={<StrategyTuner />} /> {/* <--- Route Added */}
+            <Route path="/analytics" element={<Analytics />} /> {/* <--- Route Updated */}
+            <Route path="/history" element={<TradeHistory />} />
+            <Route path="/strategy" element={<StrategyTuner />} />
+            <Route path="/account" element={<Account />} />
             <Route path="/broker" element={<BrokerKeys />} />
           </Route>
         )}
@@ -75,7 +78,7 @@ function App() {
           element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />}
         />
       </Routes>
-      <Toaster /> 
+      <Toaster />
     </Router>
   );
 }

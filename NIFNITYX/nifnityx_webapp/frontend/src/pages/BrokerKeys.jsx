@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, Save, Wifi } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import api from "@/lib/api";
-import { toast } from "sonner"; 
+import { toast } from "sonner";
 
 export default function BrokerKeys() {
   const [tradingMode, setTradingMode] = useState("paper");
@@ -34,14 +34,14 @@ export default function BrokerKeys() {
         setTradingMode(data.tradingMode);
         // Pre-fill masked values if they exist
         if (data.maskedKey) {
-            setKeys(prev => ({ 
-                ...prev, 
-                apiKey: data.maskedKey, 
-                secretKey: "****************",
-                password: "****************",
-                totpSecret: "****************",
-                clientCode: data.clientCode || ""
-            }));
+          setKeys(prev => ({
+            ...prev,
+            apiKey: data.maskedKey,
+            secretKey: "****************",
+            password: "****************",
+            totpSecret: "****************",
+            clientCode: data.clientCode || ""
+          }));
         }
       } catch (error) {
         console.error("Failed to fetch broker status");
@@ -54,6 +54,7 @@ export default function BrokerKeys() {
 
   const handleModeChange = async (checked) => {
     const newMode = checked ? "live" : "paper";
+    const prevMode = tradingMode; // capture before optimistic update
     setTradingMode(newMode);
     toast(newMode === "live" ? "Switching to Live Trading..." : "Switching to Paper Trading...");
 
@@ -62,7 +63,7 @@ export default function BrokerKeys() {
       toast.success(`Trading Mode set to ${newMode === "live" ? "Live" : "Paper"}`);
     } catch (error) {
       console.error("Failed to update mode");
-      setTradingMode(checked ? "paper" : "live"); 
+      setTradingMode(prevMode); // rollback to actual previous value
       toast.error("Failed to update trading mode");
     }
   };
@@ -74,7 +75,7 @@ export default function BrokerKeys() {
 
     try {
       await api.post("/broker/keys", {
-        brokerName: "AngelOne", 
+        brokerName: "AngelOne",
         ...keys
       });
       setStatusMsg({ type: "success", text: "Keys encrypted and saved successfully." });
@@ -106,7 +107,7 @@ export default function BrokerKeys() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      
+
       {/* 1. Global Trading Mode Switch */}
       <Card className="bg-zinc-900/30 border-zinc-800">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
@@ -117,13 +118,13 @@ export default function BrokerKeys() {
             </CardDescription>
           </div>
           <div className="flex items-center space-x-3">
-             <span className={`text-sm font-medium ${tradingMode === 'paper' ? 'text-green-400' : 'text-zinc-500'}`}>Paper</span>
-             <Switch 
-                checked={tradingMode === 'live'}
-                onCheckedChange={handleModeChange}
-                className="data-[state=checked]:bg-red-500/80 data-[state=unchecked]:bg-green-500/80"
-             />
-             <span className={`text-sm font-medium ${tradingMode === 'live' ? 'text-red-500' : 'text-zinc-500'}`}>Live</span>
+            <span className={`text-sm font-medium ${tradingMode === 'paper' ? 'text-green-400' : 'text-zinc-500'}`}>Paper</span>
+            <Switch
+              checked={tradingMode === 'live'}
+              onCheckedChange={handleModeChange}
+              className="data-[state=checked]:bg-red-500/80 data-[state=unchecked]:bg-green-500/80"
+            />
+            <span className={`text-sm font-medium ${tradingMode === 'live' ? 'text-red-500' : 'text-zinc-500'}`}>Live</span>
           </div>
         </CardHeader>
       </Card>
@@ -133,7 +134,7 @@ export default function BrokerKeys() {
         <TabsList className="grid w-full grid-cols-1 bg-zinc-900 border border-zinc-800">
           <TabsTrigger value="angel" className="data-[state=active]:bg-zinc-800 data-[state=active]:text-white">Angel One</TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="angel">
           <Card className="bg-zinc-900/30 border-zinc-800">
             <CardHeader>
@@ -144,39 +145,39 @@ export default function BrokerKeys() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSave} className="space-y-4">
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Client Code */}
-                    <div className="space-y-2">
-                    <Label className="text-zinc-300">Client Code (User ID)</Label>
-                    <Input 
-                        placeholder="Ex: A123456" 
-                        value={keys.clientCode}
-                        onChange={(e) => setKeys({...keys, clientCode: e.target.value})}
-                        className="bg-black/50 border-zinc-800 text-white focus:ring-zinc-700"
-                    />
-                    </div>
 
-                    {/* Password */}
-                    <div className="space-y-2">
-                    <Label className="text-zinc-300">Login PIN/Password</Label>
-                    <Input 
-                        placeholder="Ex: 1234" 
-                        value={keys.password}
-                        onChange={(e) => setKeys({...keys, password: e.target.value})}
-                        className="bg-black/50 border-zinc-800 text-white focus:ring-zinc-700"
-                        type={showSecrets ? "text" : "password"}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Client Code */}
+                  <div className="space-y-2">
+                    <Label className="text-zinc-300">Client Code (User ID)</Label>
+                    <Input
+                      placeholder="Ex: A123456"
+                      value={keys.clientCode}
+                      onChange={(e) => setKeys({ ...keys, clientCode: e.target.value })}
+                      className="bg-black/50 border-zinc-800 text-white focus:ring-zinc-700"
                     />
-                    </div>
+                  </div>
+
+                  {/* Password */}
+                  <div className="space-y-2">
+                    <Label className="text-zinc-300">Login PIN/Password</Label>
+                    <Input
+                      placeholder="Ex: 1234"
+                      value={keys.password}
+                      onChange={(e) => setKeys({ ...keys, password: e.target.value })}
+                      className="bg-black/50 border-zinc-800 text-white focus:ring-zinc-700"
+                      type={showSecrets ? "text" : "password"}
+                    />
+                  </div>
                 </div>
 
                 {/* API Key */}
                 <div className="space-y-2">
                   <Label className="text-zinc-300">API Key</Label>
-                  <Input 
-                    placeholder="Ex: P1234567" 
+                  <Input
+                    placeholder="Ex: P1234567"
                     value={keys.apiKey}
-                    onChange={(e) => setKeys({...keys, apiKey: e.target.value})}
+                    onChange={(e) => setKeys({ ...keys, apiKey: e.target.value })}
                     className="bg-black/50 border-zinc-800 text-white focus:ring-zinc-700"
                     type={showSecrets ? "text" : "password"}
                   />
@@ -185,15 +186,15 @@ export default function BrokerKeys() {
                 {/* Secret Key & Toggle */}
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                     <Label className="text-zinc-300">Secret Key</Label>
-                     <button type="button" onClick={() => setShowSecrets(!showSecrets)} className="text-xs text-zinc-500 hover:text-white flex items-center gap-1">
-                        {showSecrets ? <EyeOff size={12}/> : <Eye size={12}/>} {showSecrets ? "Hide" : "Show"} Secrets
-                     </button>
+                    <Label className="text-zinc-300">Secret Key</Label>
+                    <button type="button" onClick={() => setShowSecrets(!showSecrets)} className="text-xs text-zinc-500 hover:text-white flex items-center gap-1">
+                      {showSecrets ? <EyeOff size={12} /> : <Eye size={12} />} {showSecrets ? "Hide" : "Show"} Secrets
+                    </button>
                   </div>
-                  <Input 
-                    placeholder="Ex: your_secret_key_here" 
+                  <Input
+                    placeholder="Ex: your_secret_key_here"
                     value={keys.secretKey}
-                    onChange={(e) => setKeys({...keys, secretKey: e.target.value})}
+                    onChange={(e) => setKeys({ ...keys, secretKey: e.target.value })}
                     className="bg-black/50 border-zinc-800 text-white focus:ring-zinc-700"
                     type={showSecrets ? "text" : "password"}
                   />
@@ -202,10 +203,10 @@ export default function BrokerKeys() {
                 {/* TOTP */}
                 <div className="space-y-2">
                   <Label className="text-zinc-300">TOTP Secret</Label>
-                  <Input 
-                    placeholder="Enter TOTP Secret for automated 2FA" 
+                  <Input
+                    placeholder="Enter TOTP Secret for automated 2FA"
                     value={keys.totpSecret}
-                    onChange={(e) => setKeys({...keys, totpSecret: e.target.value})}
+                    onChange={(e) => setKeys({ ...keys, totpSecret: e.target.value })}
                     className="bg-black/50 border-zinc-800 text-white focus:ring-zinc-700 font-mono text-sm"
                     type={showSecrets ? "text" : "password"}
                   />
@@ -213,29 +214,29 @@ export default function BrokerKeys() {
 
                 {/* Status Messages */}
                 {statusMsg.text && (
-                   <Alert variant={statusMsg.type === 'error' ? "destructive" : "default"} className={`${statusMsg.type === 'success' ? 'bg-green-900/20 border-green-900 text-green-300' : 'bg-red-900/20 border-red-900 text-red-300'}`}>
-                      {statusMsg.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4"/>}
-                      <AlertTitle>{statusMsg.type === 'success' ? "Success" : "Error"}</AlertTitle>
-                      <AlertDescription>{statusMsg.text}</AlertDescription>
-                   </Alert>
+                  <Alert variant={statusMsg.type === 'error' ? "destructive" : "default"} className={`${statusMsg.type === 'success' ? 'bg-green-900/20 border-green-900 text-green-300' : 'bg-red-900/20 border-red-900 text-red-300'}`}>
+                    {statusMsg.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                    <AlertTitle>{statusMsg.type === 'success' ? "Success" : "Error"}</AlertTitle>
+                    <AlertDescription>{statusMsg.text}</AlertDescription>
+                  </Alert>
                 )}
 
                 <div className="flex gap-3 pt-2">
-                    <Button type="submit" disabled={saving} className="bg-white text-black hover:bg-zinc-200">
-                        {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4"/>}
-                        Save Keys
-                    </Button>
-                    <Button type="button" variant="outline" onClick={handleTest} disabled={testing} className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white">
-                        {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Wifi className="mr-2 h-4 w-4"/>}
-                        Test Connection
-                    </Button>
+                  <Button type="submit" disabled={saving} className="bg-white text-black hover:bg-zinc-200">
+                    {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Save Keys
+                  </Button>
+                  <Button type="button" variant="outline" onClick={handleTest} disabled={testing} className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white">
+                    {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wifi className="mr-2 h-4 w-4" />}
+                    Test Connection
+                  </Button>
                 </div>
               </form>
             </CardContent>
             <CardFooter className="bg-black/20 border-t border-zinc-800 p-4">
-               <p className="text-xs text-zinc-500">
-                  Your keys are encrypted using AES-256. Connection test verifies login with Angel One API.
-               </p>
+              <p className="text-xs text-zinc-500">
+                Your keys are encrypted using AES-256. Connection test verifies login with Angel One API.
+              </p>
             </CardFooter>
           </Card>
         </TabsContent>

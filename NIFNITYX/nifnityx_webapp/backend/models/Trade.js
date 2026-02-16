@@ -6,18 +6,18 @@ const tradeSchema = new mongoose.Schema(
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: false, 
+      required: false,
     },
     // Unique ID from the Python Engine
     trade_id: {
       type: String,
       required: true,
       unique: true,
-      index: true
+      index: true,
     },
     status: {
       type: String,
-      enum: ["OPEN", "CLOSED", "WIN", "LOSS", "PENDING_APPROVAL", "REJECTED", "CANCELLED", "EXPIRED"],
+      enum: ["PENDING_APPROVAL", "OPEN", "WIN", "LOSS", "REJECTED"],
       required: true,
       default: "PENDING_APPROVAL",
     },
@@ -32,6 +32,7 @@ const tradeSchema = new mongoose.Schema(
     entry: {
       price: { type: Number, required: true },
       time: { type: Date, required: true },
+      stop_loss: { type: Number, default: 0 },
     },
     exit: {
       price: { type: Number, default: 0 },
@@ -42,10 +43,14 @@ const tradeSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    pnl_percentage: {
+      type: Number,
+      default: 0,
+    },
     // Updated Confidence Structure
     confidence_score: {
       total: { type: Number, required: true },
-      max: { type: Number, default: 100 }, // Support for 160 scale
+      max: { type: Number, default: 100 },
       breakdown: {
         technical: { type: Number, default: 0 },
         sentiment: { type: Number, default: 0 },
@@ -62,13 +67,24 @@ const tradeSchema = new mongoose.Schema(
     },
     execution_mode: {
       type: String,
-      enum: ["AUTO", "MANUAL"],
-      default: "MANUAL",
+      enum: ["PAPER", "LIVE"],
+      default: "PAPER",
     },
-    is_paper: {
-      type: Boolean,
-      default: true,
+    broker_order_id: {
+      type: String,
     },
+    // Slippage & trade constraints
+    constraints: {
+      type: Object,
+      default: { slippage_per: 0.5 },
+    },
+    // Lifecycle audit log
+    logs: [
+      {
+        message: { type: String },
+        time: { type: Date, default: Date.now },
+      },
+    ],
   },
   {
     timestamps: true,

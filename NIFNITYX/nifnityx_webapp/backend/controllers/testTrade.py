@@ -1,76 +1,72 @@
-import requests
-import json
-import time
-import random
-from datetime import datetime
+"""
+  NifnityX — Simple Trade Simulator
+  
+  Sends a random signal to the Backend.
+  
+  Behavior:
+  - If Frontend/Admin is set to "MANUAL" -> Card appears as PENDING.
+  - If Frontend/Admin is set to "AUTO"   -> Trade executes instantly (OPEN).
+  
+  Usage:
+  python testTrade.py
+"""
 
-# --- CONFIGURATION ---
-# Ensure your Node.js backend is running on this port
-DASHBOARD_URL = "http://localhost:5000/api/trades/webhook"
+import requests, time, random, sys
+from datetime import datetime, timezone
 
-def generate_mock_trade():
-    """Generates a realistic trade signal payload based on NifnityX specs"""
-    
-    strategies = ["Trend Bounce", "Gamma Scalp", "Breakout", "Sniper Reversal"]
-    symbols = ["NIFTY 24500 CE", "NIFTY 24800 PE", "NIFTY 25000 CE", "BANKNIFTY 48000 PE"]
-    
-    # Random ID to prevent duplicate errors during testing
-    trade_id = f"T-SIM-{int(time.time())}-{random.randint(100,999)}"
-    
-    return {
-        "trade_id": trade_id,
-        "status": "PENDING_APPROVAL", # Default state for the dashboard to react to
-        "symbol": random.choice(symbols),
-        "setup_name": random.choice(strategies),
-        "entry": {
-            "price": round(random.uniform(120.0, 250.0), 2),
-            "time": datetime.utcnow().isoformat() + "Z"
-        },
-        "exit": {
-            "price": 0,
-            "time": None,
-            "reason": None
-        },
-        "pnl": 0,
-        "confidence_score": {
-            "total": round(random.uniform(65.0, 95.0), 1),
-            "max": 160, # As per new requirement
-            "breakdown": {
-                "technical": random.randint(40, 70),
-                "sentiment": random.randint(-10, 20),
-                "ml_model": random.randint(10, 40)
-            }
-        },
-        "lots": random.randint(1, 4),
-        "ml_adjustment": "1.0x",
-        "is_paper": True # Mark as simulation
-    }
+BASE = "http://localhost:5000/api"
+
+def now():
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 def send_signal():
-    print(f"🚀 Generating Signal...")
-    trade_data = generate_mock_trade()
+    tid = f"T-SIM-{int(time.time())}-{random.randint(100, 999)}"
+    print(f"\n📤 Sending Signal ID: {tid} ...")
     
-    print(f"📦 Payload: {trade_data['symbol']} | ID: {trade_data['trade_id']}")
+    # Random setups
+    setup = random.choice(["Breakout", "Reversal", "Trend Follow"])
+    direction = random.choice(["BULLISH", "BEARISH"])
+    symbol = "NIFTY 25000 CE" if direction == "BULLISH" else "NIFTY 25000 PE"
     
+    # Price close to market (assumption)
+    entry_price = round(random.uniform(98.0, 102.0), 2)
+    sl = round(entry_price * 0.9, 2)
+    tp = round(entry_price * 1.2, 2)
+    
+    signal = {
+        "trade_id": tid,
+        "symbol": symbol, 
+        "setup_name": setup,
+        "direction": direction,
+        "entry": {"price": entry_price, "time": now(), "stop_loss": sl, "target": tp},
+        "confidence_score": {"total": 85, "breakdown": {"technical": 30, "sentiment": 30, "ml_model": 25}},
+        "lots": 1,
+        "constraints": {"slippage_per": 2.0}, # Relaxed slippage for testing
+    }
+
     try:
-        # Send POST request to Node.js Backend
-        response = requests.post(DASHBOARD_URL, json=trade_data, timeout=5)
-        
-        if response.status_code == 200:
-            print(f"✅ SUCCESS: Dashboard received signal.")
-            print(f"   Response: {response.json()}")
-        else:
-            print(f"❌ FAILED: Dashboard rejected signal.")
-            print(f"   Status: {response.status_code} | Error: {response.text}")
+        res = requests.post(f"{BASE}/trade/signal", json=signal)
+        if res.status_code == 200:
+            data = res.json()
+            status = data.get("status", "UNKNOWN")
+            msg = data.get("message", "Success")
             
-    except requests.exceptions.ConnectionError:
-        print(f"🚨 CONNECTION ERROR: Is the Node.js backend running at {DASHBOARD_URL}?")
+            print(f"   ✅ Sent Successfully!")
+            print(f"   ℹ️  Server Response: {msg}")
+            
+            if status == "OPEN":
+                print("   🚀 Result: AUTO-EXECUTED (Order is OPEN)")
+            elif status == "REJECTED":
+                print("   🛑 Result: REJECTED (Check Slippage/Risk?)")
+            else:
+                print("   🕒 Result: PENDING APPROVAL (Manual Mode Active)")
+                
+        else:
+            print(f"   ❌ Failed ({res.status_code}): {res.text}")
+            
     except Exception as e:
-        print(f"⚠️ ERROR: {str(e)}")
+        print(f"   🚨 Connection Error: {e}")
+        print("      Ensure backend is running on localhost:5000")
 
 if __name__ == "__main__":
-    # You can run this in a loop or just once
     send_signal()
-    # while True:
-    #     send_signal()
-    #     time.sleep(10)
