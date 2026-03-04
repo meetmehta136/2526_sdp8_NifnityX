@@ -35,6 +35,12 @@ pytz==2024.2
 tqdm==4.66.5
 requests>=2.31.0
 
+# ===============================
+# API SERVER (FastAPI Integration)
+# ===============================
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
 # Optional for advanced features
  python-telegram-bot  # For Telegram alerts
  twilio  # For WhatsApp/SMS alerts

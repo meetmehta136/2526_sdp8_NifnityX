@@ -25,6 +25,7 @@ Fetches news and scores sentiment
 
 import requests
 import numpy as np
+import config
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -134,6 +135,9 @@ class SentimentAnalyzer:
         if disaster_detected:
             print(f"   ⚠️  DISASTER DETECTED!")
         
+        # Store news to database
+        self._store_news_to_db(news_articles, result)
+        
         return result
     
     def _fetch_news(self):
@@ -157,6 +161,90 @@ class SentimentAnalyzer:
                 return []
         except:
             return []
+    
+    def _categorize_news(self, text):
+        """Categorize news based on keywords"""
+        text = text.lower()
+        if 'bank nifty' in text or 'banking' in text:
+            return 'BANKNIFTY'
+        elif 'fii' in text or 'dii' in text or 'foreign' in text:
+            return 'FII_DII'
+        elif 'rbi' in text or 'reserve bank' in text or 'monetary' in text:
+            return 'RBI'
+        elif 'global' in text or 'us market' in text or 'dow' in text:
+            return 'GLOBAL'
+        elif 'earnings' in text or 'results' in text or 'profit' in text:
+            return 'EARNINGS'
+        elif 'war' in text or 'conflict' in text or 'geopolitical' in text:
+            return 'GEOPOLITICAL'
+        elif 'nifty' in text or 'sensex' in text:
+            return 'NIFTY50'
+        return 'OTHER'
+    
+    def _calculate_impact_level(self, sentiment_score):
+        """Calculate impact level based on sentiment score"""
+        abs_score = abs(sentiment_score)
+        if abs_score > 0.6:
+            return 'high'
+        elif abs_score > 0.3:
+            return 'medium'
+        return 'low'
+    
+    def _store_news_to_db(self, articles, sentiment_data):
+        """Store news articles to database via Node.js API"""
+        if not articles:
+            return
+        
+        try:
+            formatted_articles = []
+            for article in articles:
+                title = article.get('title', '')
+                desc = article.get('description', '')
+                text = f"{title} {desc}".lower()
+                
+                pos_count = sum(1 for word in self.positive_words if word in text)
+                neg_count = sum(1 for word in self.negative_words if word in text)
+                total = pos_count + neg_count
+                
+                article_sentiment = (pos_count - neg_count) / total if total > 0 else 0
+                sentiment_label = 'bullish' if article_sentiment > 0.2 else 'bearish' if article_sentiment < -0.2 else 'neutral'
+                
+                published_at = article.get('publishedAt', datetime.now().isoformat())
+                if isinstance(published_at, str):
+                    try:
+                        pub_date = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+                    except:
+                        pub_date = datetime.now()
+                else:
+                    pub_date = datetime.now()
+                
+                formatted_articles.append({
+                    'headline': title,
+                    'summary': desc or '',
+                    'source_name': article.get('source', {}).get('name', 'Unknown'),
+                    'source_url': article.get('url', ''),
+                    'published_at': pub_date.isoformat(),
+                    'category': self._categorize_news(text),
+                    'sentiment_score': article_sentiment,
+                    'sentiment_label': sentiment_label,
+                    'sentiment_confidence': min(total / 10, 1.0),
+                    'impact_level': self._calculate_impact_level(article_sentiment),
+                    'date_key': pub_date.strftime('%Y-%m-%d'),
+                })
+            
+            response = requests.post(
+                f"{config.NODE_NEWS_API_URL}/store",
+                json={'articles': formatted_articles},
+                headers={'x-python-secret': config.NODE_SECRET},
+                timeout=5,
+                verify=False
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                print(f"   📰 Stored {result.get('stored', 0)} news articles (skipped {result.get('skipped', 0)} duplicates)")
+        except Exception as e:
+            print(f"   ⚠️  Could not store news to DB: {e}")
 
 
 # Test standalone

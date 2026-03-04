@@ -1,25 +1,54 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Outlet } from "react-router-dom";
+import { TradeProvider } from "@/contexts/TradeContext";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { Separator } from "@/components/ui/separator";
-import api from "@/lib/api";
-import { Wallet, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import api, { fetchActiveStrategy, setActiveStrategy } from "@/lib/api";
+import { ArrowUpRight, ArrowDownRight, Crosshair, Activity, Zap, Shield, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+
+const STRATEGY_META = {
+    sniper: { label: "Sniper", icon: Crosshair, color: "text-purple-400" },
+    balanced: { label: "Balanced", icon: Activity, color: "text-blue-400" },
+    aggressive: { label: "Aggressive", icon: Zap, color: "text-amber-400" },
+    conservative: { label: "Conservative", icon: Shield, color: "text-emerald-400" },
+};
 
 export default function DashboardLayout({ user }) {
     const [price, setPrice] = useState(null);
     const [stats, setStats] = useState({ totalPnL: 0, openTrades: 0 });
 
+    // Strategy state
+    const [activeStrategy, setActiveStrategyState] = useState("sniper");
+    const [availableStrategies, setAvailableStrategies] = useState(["sniper", "balanced", "aggressive", "conservative"]);
+    const [strategySwitching, setStrategySwitching] = useState(false);
+
     const syncData = useCallback(async () => {
         try {
             const [priceRes, statsRes] = await Promise.allSettled([
                 api.get("/market/price?symbol=NIFTY"),
-                api.get(`/trades/stats?mode=${user?.settings?.tradingMode || 'paper'}`),
+                api.get(`/trade/stats?mode=${user?.settings?.tradingMode || 'paper'}`),
             ]);
             if (priceRes.status === 'fulfilled') setPrice(priceRes.value.data);
             if (statsRes.status === 'fulfilled') setStats(statsRes.value.data);
         } catch (e) { console.error("HUD Sync failed", e); }
     }, [user]);
+
+    // Fetch active strategy on mount
+    useEffect(() => {
+        const loadStrategy = async () => {
+            try {
+                const { data } = await fetchActiveStrategy();
+                setActiveStrategyState(data.active);
+                if (data.available?.length) setAvailableStrategies(data.available);
+            } catch (_) {
+                // Not logged in yet or endpoint not ready
+            }
+        };
+        loadStrategy();
+    }, []);
 
     useEffect(() => {
         syncData();
@@ -27,9 +56,33 @@ export default function DashboardLayout({ user }) {
         return () => clearInterval(interval);
     }, [syncData]);
 
+    // Handle strategy change
+    const handleStrategyChange = async (newStrategy) => {
+        if (newStrategy === activeStrategy) return;
+        const prev = activeStrategy;
+        setStrategySwitching(true);
+        setActiveStrategyState(newStrategy); // Optimistic
+
+        try {
+            const { data } = await setActiveStrategy(newStrategy);
+            if (data.warning) {
+                toast.warning(data.warning);
+            } else {
+                toast.success(`Strategy switched to ${newStrategy.toUpperCase()}`);
+            }
+        } catch (err) {
+            setActiveStrategyState(prev); // Rollback
+            const msg = err.response?.data?.message || "Failed to change strategy";
+            toast.error(msg);
+        } finally {
+            setStrategySwitching(false);
+        }
+    };
+
     const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
     const isUp = price?.change >= 0;
     const isMarketOpen = price?.marketState === 'REGULAR';
+
 
     return (
         <SidebarProvider defaultOpen={true}>
@@ -53,6 +106,35 @@ export default function DashboardLayout({ user }) {
 
                         {/* Session HUD (Right Side) */}
                         <div className="ml-auto flex items-center gap-4 md:gap-6 text-xs font-mono">
+
+                            {/* Strategy Selector */}
+                            <div className="hidden md:flex items-center">
+                                <Select value={activeStrategy} onValueChange={handleStrategyChange} disabled={strategySwitching}>
+                                    <SelectTrigger className="h-7 w-[130px] bg-zinc-900/60 border-zinc-800 text-[11px] text-zinc-300 font-semibold px-2 gap-1">
+                                        {strategySwitching ? (
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                        ) : (
+                                            <SelectValue />
+                                        )}
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
+                                        {availableStrategies.map((s) => {
+                                            const meta = STRATEGY_META[s];
+                                            const Icon = meta?.icon || Crosshair;
+                                            return (
+                                                <SelectItem key={s} value={s}>
+                                                    <span className="flex items-center gap-2">
+                                                        <Icon className={`h-3 w-3 ${meta?.color || ""}`} />
+                                                        {meta?.label || s}
+                                                    </span>
+                                                </SelectItem>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="hidden md:block h-4 w-[1px] bg-zinc-800" />
 
                             {/* 1. Market Status */}
                             {isMarketOpen ? (
@@ -98,7 +180,9 @@ export default function DashboardLayout({ user }) {
 
                     {/* Page Content Outlet */}
                     <div className="flex-1 overflow-y-auto p-4 md:p-6 scroll-smooth bg-[url('/grid-pattern.svg')] bg-fixed bg-center">
-                        <Outlet />
+                        <TradeProvider>
+                            <Outlet />
+                        </TradeProvider>
                     </div>
                 </main>
             </div>

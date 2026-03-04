@@ -133,7 +133,10 @@ class TradingBot:
         df['minute'] = df.index.minute
         df['day_of_week'] = df.index.dayofweek
         
-        df = df.fillna(method='ffill').fillna(0)
+        # Fill missing values: earlier pandas versions accepted fillna(method=..),
+        # newer ones do not.  Use ffill() for forward‑fill then zero for any
+        # remaining NaNs.
+        df = df.ffill().fillna(0)
         return df
     
     def _calculate_adx(self, df, period=14):

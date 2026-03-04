@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import InfinityChart from "@/components/dashboard/InfinityChart";
 import TradeFeed from "@/components/dashboard/TradeFeed";
-import { toast } from "sonner";
-import { Bell, CheckCircle2, XCircle, TrendingUp, TrendingDown, Loader2 } from "lucide-react";
-import { socket } from "@/lib/socket";
+import { TrendingUp, TrendingDown, Loader2 } from "lucide-react";
 import api from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTrades } from "@/contexts/TradeContext";
 
 const INTERVALS = [
   { label: "1m", value: "1m" },
@@ -20,10 +19,12 @@ export default function Dashboard() {
   const [activeInterval, setActiveInterval] = useState("1m");
   const [priceSummary, setPriceSummary] = useState(null);
   const chartRef = useRef(null);
-  const [trades, setTrades] = useState([]);
   const pollFailCount = useRef(0);
 
-  // ── Fetch Chart Data (Yahoo Finance — Free) ──
+  // ── Trades from global context (socket listeners are there) ──
+  const { trades, handleApprove, handleReject, handleExit } = useTrades();
+
+  // ── Fetch Chart Data ──
   const loadChartData = useCallback(async (interval) => {
     setIsChartLoading(true);
     try {
@@ -54,13 +55,6 @@ export default function Dashboard() {
   useEffect(() => {
     loadChartData(activeInterval);
     loadPriceSummary();
-    const fetchTrades = async () => {
-      try {
-        const res = await api.get("/trade?limit=20");
-        if (res.data && Array.isArray(res.data)) setTrades(res.data);
-      } catch (_) { }
-    };
-    fetchTrades();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Interval Change ──
@@ -97,86 +91,14 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, [activeInterval, loadPriceSummary]);
 
-  // ── Socket.io: New Signals ──
-  useEffect(() => {
-    const onSignal = (sig) => {
-      setTrades((prev) => [sig, ...prev]);
-      toast.custom(() => (
-        <div className="flex w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-lg p-3 shadow-xl items-start gap-3">
-          <div className="p-2 bg-indigo-500/10 rounded-full border border-indigo-500/20 shrink-0">
-            <Bell className="h-4 w-4 text-indigo-400" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-white">Signal: <span className="text-indigo-300">{sig.symbol}</span></p>
-            <p className="text-[10px] text-zinc-500">{sig.setup_name}</p>
-          </div>
-        </div>
-      ), { duration: 4000 });
-    };
-
-    const onTradeUpdate = (updatedTrade) => {
-      setTrades((prev) =>
-        prev.map((t) =>
-          (t._id === updatedTrade._id || t.trade_id === updatedTrade.trade_id)
-            ? updatedTrade
-            : t
-        )
-      );
-    };
-
-    socket.on("new_signal", onSignal);
-    socket.on("trade_update", onTradeUpdate);
-
-    return () => {
-      socket.off("new_signal", onSignal);
-      socket.off("trade_update", onTradeUpdate);
-    };
-  }, []);
-
-  // ── Trade Handlers ──
-  const handleApprove = async (tradeId, isForce = false) => {
-    // Optimistic update
-    setTrades((p) => p.map((t) => (t._id === tradeId ? { ...t, status: "OPEN" } : t)));
-    try {
-      await api.post(`/trade/${tradeId}/approve`, { force: isForce });
-      toast.success(isForce ? "Trade Force-Approved" : "Trade Approved", {
-        icon: <CheckCircle2 className="text-emerald-500" />,
-      });
-    } catch (err) {
-      // Rollback on failure
-      setTrades((p) => p.map((t) => (t._id === tradeId && t.status === "OPEN" ? { ...t, status: "PENDING_APPROVAL" } : t)));
-      const msg = err.response?.data?.message || "Approval Failed";
-      toast.error(msg);
-    }
-  };
-
-  const handleReject = async (tradeId) => {
-    setTrades((p) => p.map((t) => (t._id === tradeId ? { ...t, status: "REJECTED" } : t)));
-    try {
-      await api.post(`/trade/${tradeId}/reject`, { reason: "User rejected" });
-      toast.info("Trade Rejected", { icon: <XCircle className="text-red-500" /> });
-    } catch (_) { }
-  };
-
-  const handleExit = async (tradeId) => {
-    try {
-      await api.post(`/trade/${tradeId}/exit`);
-      toast.success("Sell command sent", { icon: <CheckCircle2 className="text-amber-500" /> });
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Exit failed");
-    }
-  };
-
   // ── RENDER ──
   const isUp = priceSummary?.change >= 0;
 
   return (
     <div className="flex flex-col xl:flex-row gap-4 w-full h-full min-h-[calc(100vh-theme(spacing.28))] xl:min-h-0">
-      {/* CHART SECTION — fills available height */}
+      {/* CHART SECTION */}
       <section className="flex-1 min-h-[400px] xl:min-h-0 flex flex-col gap-2 relative">
-        {/* Compact toolbar: Price + Intervals */}
         <div className="flex items-center justify-between px-0.5 shrink-0 h-8">
-          {/* Price (compact — since navbar also shows it) */}
           <div className="flex items-center gap-2">
             {priceSummary ? (
               <>
@@ -198,7 +120,6 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Interval buttons */}
           <div className="flex items-center gap-1 bg-zinc-900/60 border border-zinc-800 rounded-lg p-1">
             {INTERVALS.map((i) => (
               <button
@@ -215,13 +136,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Chart — fills remaining space */}
         <div className="flex-1 w-full min-h-0 relative bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden">
           {isChartLoading ? <ChartLoader /> : <InfinityChart ref={chartRef} data={chartData} interval={activeInterval} />}
         </div>
       </section>
 
-      {/* TRADE FEED — fills height on large screens, fixed/min-height on mobile/tablet */}
+      {/* TRADE FEED */}
       <section className="xl:w-[420px] min-h-[400px] xl:min-h-0 xl:h-full overflow-hidden shrink-0">
         <TradeFeed
           trades={trades}
@@ -235,7 +155,6 @@ export default function Dashboard() {
   );
 }
 
-// ── Minimal Chart Loader ──
 function ChartLoader() {
   return (
     <div className="w-full h-full flex items-center justify-center">

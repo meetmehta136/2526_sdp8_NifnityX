@@ -45,4 +45,28 @@ export const fetchAnalytics = async (params) => {
     return api.get('/trade/analytics', { params });
 };
 
+export const fetchActiveStrategy = async () => {
+    return api.get('/strategies/active');
+};
+
+export const setActiveStrategy = async (strategy) => {
+    return api.put('/strategies/active', { strategy });
+};
+
+export const fetchTodayNews = async () => {
+    return api.get('/news/today');
+};
+
+export const fetchNewsByDate = async (date) => {
+    return api.get(`/news/date?date=${date}`);
+};
+
+export const fetchNewsSummary = async (days = 7) => {
+    return api.get(`/news/summary?days=${days}`);
+};
+
+export const refreshNews = async () => {
+    return api.post('/news/refresh');
+};
+
 export default api;

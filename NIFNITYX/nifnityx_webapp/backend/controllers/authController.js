@@ -1,4 +1,6 @@
 import User from "../models/User.js";
+import Strategy from "../models/Strategy.js";
+import axios from "axios";
 import generateToken from "../utils/generateToken.js";
 
 // @desc    Register a new user
@@ -94,6 +96,33 @@ const updateStrategySettings = async (req, res) => {
       if (direction) user.settings.strategy.direction = direction;
 
       const updatedUser = await user.save();
+
+      // ── HOT-SWAP SYNC WITH PYTHON ENGINE ──
+      const pythonUrl = process.env.PYTHON_EXECUTION_URL || "http://localhost:8000";
+      const pythonBase = (() => { try { return new URL(pythonUrl).origin; } catch { return "http://localhost:8000"; } })();
+
+      // If executionMode changed, sync to Python
+      if (executionMode) {
+        axios.post(`${pythonBase}/set_mode`, { mode: executionMode }, { timeout: 5000 })
+          .then(() => console.log(`⚙️  Pushed execution mode (${executionMode}) to Python`))
+          .catch(err => console.warn("Mode sync failed:", err.message));
+      }
+
+      // If profile changed, also sync to Strategy model + Python engine
+      if (profile) {
+        try {
+          await Strategy.findOneAndUpdate(
+            { user: req.user._id },
+            { active_strategy: profile, execution_mode: executionMode || user.settings.executionMode },
+            { upsert: true }
+          );
+          axios.post(`${pythonBase}/set_strategy`, { strategy: profile }, { timeout: 5000 })
+            .then(() => console.log(`🔄 Pushed active strategy (${profile}) to Python`))
+            .catch(err => console.warn("Strategy sync warning:", err.message));
+        } catch (syncErr) {
+          console.warn("DB Strategy sync warning:", syncErr.message);
+        }
+      }
 
       res.json({
         settings: updatedUser.settings,

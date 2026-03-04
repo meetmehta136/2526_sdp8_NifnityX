@@ -4,6 +4,7 @@ import {
   History,
   Settings2,
   KeyRound,
+  Newspaper,
 } from "lucide-react";
 
 export const navItems = [
@@ -16,6 +17,11 @@ export const navItems = [
     title: "Analytics",
     url: "/analytics",
     icon: LineChart,
+  },
+  {
+    title: "Market News",
+    url: "/news",
+    icon: Newspaper,
   },
   {
     title: "Trade History",

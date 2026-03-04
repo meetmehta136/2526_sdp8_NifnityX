@@ -49,8 +49,8 @@ class PaperTradingEngine:
         if len(self.open_positions) >= self.max_positions:
             return False, "Max positions reached"
         
-        # Need minimum capital for margin
-        required_margin = 150000  # Approx for 1 lot NIFTY
+        # Reduced margin requirement for paper trading
+        required_margin = 50000  # Reduced from 150000
         if self.capital < required_margin:
             return False, f"Insufficient capital (need ₹{required_margin:,})"
         
@@ -60,19 +60,24 @@ class PaperTradingEngine:
     def _send_update_to_node(self, trade_data):
         """Send trade close update to Node.js Mission Control"""
         try:
+            # Cast everything to native Python types — numpy.bool_ / numpy.float64
+            # are NOT JSON serializable and will crash requests.post silently.
+            gross = float(trade_data.get('gross_pnl', 0))
+            won   = bool(gross > 0)
             payload = {
-                "trade_id": trade_data.get('trade_id', trade_data.get('signal_id')),
-                "status": "WIN" if trade_data.get('net_pnl', 0) > 0 else "LOSS",
+                "trade_id":   str(trade_data.get('trade_id', trade_data.get('signal_id', ''))),
+                "status":     "WIN" if won else "LOSS",
                 "exit": {
-                    "price": trade_data.get('exit_price'),
-                    "time": str(trade_data.get('exit_time')),
-                    "reason": trade_data.get('exit_reason')
+                    "price":  float(trade_data.get('exit_price', 0)),
+                    "time":   str(trade_data.get('exit_time', '')),
+                    "reason": str(trade_data.get('exit_reason', 'STOP_HIT')),
                 },
-                "pnl": trade_data.get('net_pnl', 0),
-                "pnl_percentage": (
-                    trade_data.get('net_pnl', 0) / 
-                    (trade_data.get('entry_price', 1) * trade_data.get('lots', 1) * 75)
-                ) * 100
+                "pnl":           round(gross, 2),
+                "gross_pnl":     round(gross, 2),
+                "total_costs":   0,
+                "cost_breakdown": {},
+                "won":           won,
+                "strategy_name": str(trade_data.get('strategy_name', 'sniper')),
             }
             requests.post(
                 f"{config.NODE_API_URL}/update",
@@ -85,7 +90,7 @@ class PaperTradingEngine:
             print(f"⚠️  Could not send update to Node.js: {e}")
     
     
-    def execute_signal(self, signal, current_price, ml_score=20):
+    def execute_signal(self, signal, current_price, ml_score=20, current_time=None):
         """
         Execute a signal (paper trade)
         
@@ -93,6 +98,7 @@ class PaperTradingEngine:
             signal: Signal dict from Layer 1
             current_price: Current market price
             ml_score: ML score for lot sizing
+            current_time: Simulated time (defaults to datetime.now())
         
         Returns:
             dict with execution details
@@ -121,27 +127,24 @@ class PaperTradingEngine:
         if lots < 0.5:
             lots = 0.5
         
-        # Simulate slippage
+        # Demo mode: no slippage, no costs — matches backtest exactly
         action = signal['action']
-        entry_price = self.cost_calc.calculate_slippage(current_price, action)
-        
-        # Calculate entry costs
-        if action == 'BUY':
-            entry_costs = self.cost_calc.calculate_entry_costs(entry_price, self.lot_size * lots)
-        else:
-            entry_costs = self.cost_calc.calculate_exit_costs(entry_price, self.lot_size * lots)
+        entry_price = float(current_price)
+        entry_costs = {'total': 0}
         
         # Create position
         position = {
             'signal_id': f"SIG_{self.total_signals_generated}",
             'trade_id': f"TRD_{len(self.closed_trades) + len(self.open_positions) + 1}",
-            'entry_time': datetime.now(),
+            'entry_time': current_time or datetime.now(),
             'action': action,
             'entry_price': entry_price,
             'lots': lots,
             'quantity': self.lot_size * lots,
             'stop_loss': signal['stop'],
             'target': signal['target'],
+            'trail_stop': signal['stop'],   # mirrors TradingBot.update_trade() trailing logic
+            'partial_closed': False,
             'setup': signal.get('setup', 'unknown'),
             'ml_score': ml_score,
             'entry_costs': entry_costs,
@@ -150,12 +153,15 @@ class PaperTradingEngine:
         
         self.open_positions.append(position)
         self.total_signals_executed += 1
-        self.today_costs += entry_costs['total']
+        self.total_trades_completed += 1  # FIX: Increment counter when trade opens
+        # entry_costs tracked for display only — not deducted in demo mode
         
         print(f"\n✅ PAPER TRADE EXECUTED")
+        print(f"   📊 Trade Counter: {self.total_trades_completed} trades executed")
         print(f"   {action} {lots} Lot @ ₹{entry_price:,.2f}")
         print(f"   Stop: ₹{signal['stop']:,.2f} | Target: ₹{signal['target']:,.2f}")
-        print(f"   Entry Costs: ₹{entry_costs['total']:,.2f}")
+        print(f"   Entry: ₹{entry_price:,.2f} | Stop: ₹{signal['stop']:,.2f} | Target: ₹{signal['target']:,.2f}")
+        print(f"   🔍 Total open positions: {len(self.open_positions)}")
         
         return {
             'executed': True,
@@ -165,122 +171,174 @@ class PaperTradingEngine:
         }
     
     
-    def update_positions(self, current_price, current_time):
+    def update_positions(self, candle_data, current_time):
         """
-        Update all open positions
-        Check for stop loss / target hits
-        
-        Args:
-            current_price: Current NIFTY price
-            current_time: Current timestamp
+        Update open positions with TRAILING STOP — mirrors TradingBot.update_trade() exactly.
+
+        Without this, every trade the backtest closes as STOP_HIT-WIN (trailing stop in
+        profit zone) becomes a STOP_HIT-LOSS here (static original stop). This was the
+        sole reason demo showed 100% losses while backtest showed ~55% win rate.
+
+        Logic (identical to layer1_trading_bot.py):
+          BUY:  once profit >= 1.5R → scale out half, trail to breakeven
+                once profit >= 1.0R → trail to entry + 0.7R
+                exit: low <= trail_stop (STOP_HIT) or high >= target (TARGET_HIT)
+          SELL: mirror image
         """
+        if not self.open_positions:
+            return
+
+        if isinstance(candle_data, dict):
+            current_price = candle_data.get('close', candle_data.get('price', 0))
+            high_price    = candle_data.get('high', current_price)
+            low_price     = candle_data.get('low',  current_price)
+        else:
+            current_price = high_price = low_price = float(candle_data)
+
         positions_to_close = []
-        
+
         for i, pos in enumerate(self.open_positions):
-            action = pos['action']
+            action      = pos['action']
             entry_price = pos['entry_price']
-            stop_loss = pos['stop_loss']
-            target = pos['target']
-            
-            # Check if stop or target hit
-            exit_triggered = False
-            exit_reason = None
-            exit_price = None
-            
+            stop_loss   = pos['stop_loss']
+            target      = pos['target']
+            trade_id    = pos.get('trade_id', 'UNKNOWN')
+
+            # Backfill trail_stop for any position opened before this fix
+            if 'trail_stop' not in pos:
+                pos['trail_stop'] = stop_loss
+            if 'partial_closed' not in pos:
+                pos['partial_closed'] = False
+
+            trail_stop = pos['trail_stop']
+
+            if i == 0:
+                print(
+                    f"\r🔍 {trade_id}: {action} Entry={entry_price:.2f} "
+                    f"Trail={trail_stop:.2f} Target={target:.2f} "
+                    f"| L={low_price:.2f} H={high_price:.2f}",
+                    end='', flush=True
+                )
+
             if action == 'BUY':
-                if current_price <= stop_loss:
-                    exit_triggered = True
-                    exit_reason = 'STOP_HIT'
-                    exit_price = stop_loss
-                elif current_price >= target:
-                    exit_triggered = True
-                    exit_reason = 'TARGET_HIT'
-                    exit_price = target
+                pnl_pts  = current_price - entry_price
+                risk_pts = entry_price - stop_loss
+
+                # Scale-out at 1.5R: take half off, move trail to breakeven
+                if not pos['partial_closed'] and pnl_pts >= risk_pts * 1.5:
+                    partial_lots = pos['lots'] // 2
+                    if partial_lots > 0:
+                        self.capital   += partial_lots * pnl_pts * self.lot_size
+                        self.today_pnl += partial_lots * pnl_pts * self.lot_size
+                        pos['lots']          -= partial_lots
+                        pos['partial_closed'] = True
+                        pos['trail_stop']     = entry_price
+                        trail_stop            = entry_price
+
+                # Trail: lock in 0.7R profit
+                if pnl_pts > risk_pts * 1.0:
+                    new_trail = entry_price + risk_pts * 0.7
+                    if new_trail > trail_stop:
+                        pos['trail_stop'] = new_trail
+                        trail_stop = new_trail
+
+                if low_price <= trail_stop:
+                    positions_to_close.append((i, trail_stop, 'STOP_HIT', current_time))
+                elif high_price >= target:
+                    positions_to_close.append((i, target, 'TARGET_HIT', current_time))
+
             else:  # SELL
-                if current_price >= stop_loss:
-                    exit_triggered = True
-                    exit_reason = 'STOP_HIT'
-                    exit_price = stop_loss
-                elif current_price <= target:
-                    exit_triggered = True
-                    exit_reason = 'TARGET_HIT'
-                    exit_price = target
-            
-            if exit_triggered:
-                positions_to_close.append((i, exit_price, exit_reason, current_time))
-        
-        # Close positions
+                pnl_pts  = entry_price - current_price
+                risk_pts = stop_loss - entry_price
+
+                # Scale-out at 1.5R
+                if not pos['partial_closed'] and pnl_pts >= risk_pts * 1.5:
+                    partial_lots = pos['lots'] // 2
+                    if partial_lots > 0:
+                        self.capital   += partial_lots * pnl_pts * self.lot_size
+                        self.today_pnl += partial_lots * pnl_pts * self.lot_size
+                        pos['lots']          -= partial_lots
+                        pos['partial_closed'] = True
+                        pos['trail_stop']     = entry_price
+                        trail_stop            = entry_price
+
+                # Trail: lock in 0.7R profit
+                if pnl_pts > risk_pts * 1.0:
+                    new_trail = entry_price - risk_pts * 0.7
+                    if new_trail < trail_stop:
+                        pos['trail_stop'] = new_trail
+                        trail_stop = new_trail
+
+                if high_price >= trail_stop:
+                    positions_to_close.append((i, trail_stop, 'STOP_HIT', current_time))
+                elif low_price <= target:
+                    positions_to_close.append((i, target, 'TARGET_HIT', current_time))
+
         for i, exit_price, exit_reason, exit_time in reversed(positions_to_close):
             self.close_position(i, exit_price, exit_reason, exit_time)
     
     
     def close_position(self, position_index, exit_price, exit_reason, exit_time):
-        """Close a position and calculate P&L"""
+        """Close a position — no slippage, no costs. Matches backtest exactly."""
         pos = self.open_positions[position_index]
-        
-        # Apply slippage to exit
-        exit_price_with_slippage = self.cost_calc.calculate_slippage(
-            exit_price, 
-            'SELL' if pos['action'] == 'BUY' else 'BUY'
-        )
-        
-        # Calculate P&L
-        result = self.cost_calc.calculate_trade_pnl(
-            pos['entry_price'],
-            exit_price_with_slippage,
-            pos['action'],
-            self.lot_size,
-            pos['lots']
-        )
-        
+
+        exit_price = float(exit_price)
+
+        # Raw P&L: same formula as TradingBot (point_value = lot_size = 75)
+        if pos['action'] == 'BUY':
+            gross_pnl = (exit_price - pos['entry_price']) * pos['lots'] * self.lot_size
+        else:
+            gross_pnl = (pos['entry_price'] - exit_price) * pos['lots'] * self.lot_size
+
+        gross_pnl = round(gross_pnl, 2)
+        won = gross_pnl > 0
+
         # Update position
-        pos['exit_time'] = exit_time
-        pos['exit_price'] = exit_price_with_slippage
+        pos['exit_time']   = exit_time
+        pos['exit_price']  = exit_price
         pos['exit_reason'] = exit_reason
-        pos['gross_pnl'] = result['gross_pnl']
-        pos['exit_costs'] = result['exit_costs']
-        pos['total_costs'] = result['total_costs']
-        pos['net_pnl'] = result['net_pnl']
-        pos['status'] = 'CLOSED'
-        pos['won'] = result['net_pnl'] > 0
-        
+        pos['gross_pnl']   = gross_pnl
+        pos['net_pnl']     = gross_pnl
+        pos['total_costs'] = 0
+        pos['exit_costs']  = {}
+        pos['status']      = 'CLOSED'
+        pos['won']         = won
+
         # Update capital
-        self.capital += result['net_pnl']
-        self.today_pnl += result['net_pnl']
-        self.today_costs += result['exit_costs']['total']
-        
+        self.capital      += gross_pnl
+        self.today_pnl    += gross_pnl
+
         # Move to closed trades
         self.closed_trades.append(pos)
         self.open_positions.pop(position_index)
         self.total_trades_completed += 1
-        
+
         # Notify Node.js Mission Control
         self._send_update_to_node(pos)
-        
-        emoji = "✅" if pos['won'] else "❌"
+
+        emoji = "✅" if won else "❌"
         print(f"\n{emoji} POSITION CLOSED - {exit_reason}")
         print(f"   {pos['action']} {pos['lots']} Lot")
-        print(f"   Entry: ₹{pos['entry_price']:,.2f} → Exit: ₹{exit_price_with_slippage:,.2f}")
-        print(f"   Gross P&L: ₹{result['gross_pnl']:+,.2f}")
-        print(f"   Costs: ₹{result['total_costs']:,.2f}")
-        print(f"   Net P&L: ₹{result['net_pnl']:+,.2f}")
+        print(f"   Entry: ₹{pos['entry_price']:,.2f} → Exit: ₹{exit_price:,.2f}")
+        print(f"   P&L: ₹{gross_pnl:+,.2f}")
         print(f"   Capital: ₹{self.capital:,.2f}")
     
     
-    def force_close_all(self, current_price, reason="EOD"):
+    def force_close_all(self, current_price, reason="EOD", current_time=None):
         """Force close all positions (end of day)"""
         while self.open_positions:
-            self.close_position(0, current_price, reason, datetime.now())
+            self.close_position(0, current_price, reason, current_time or datetime.now())
     
     
-    def get_daily_stats(self):
+    def get_daily_stats(self, current_time=None):
         """Get today's statistics"""
         wins = len([t for t in self.closed_trades if t.get('won', False)])
         losses = len(self.closed_trades) - wins
         win_rate = (wins / len(self.closed_trades) * 100) if self.closed_trades else 0
         
+        ref_time = current_time or datetime.now()
         return {
-            'date': datetime.now().strftime('%Y-%m-%d'),
+            'date': ref_time.strftime('%Y-%m-%d'),
             'signals_generated': self.total_signals_generated,
             'signals_executed': self.total_signals_executed,
             'trades_completed': self.total_trades_completed,

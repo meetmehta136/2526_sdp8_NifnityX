@@ -1,123 +1,101 @@
 import React, { useEffect } from 'react';
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Check, X, TrendingUp, TrendingDown,
   Ban, BrainCircuit, Activity,
-  AlertTriangle, LogOut, ArrowRight
+  LogOut, ArrowRight, ArrowDown, ArrowUp,
+  Crosshair, Zap, Shield
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ── Confidence Ring ──
-const ScoreRing = ({ score, size = 40, stroke = 3 }) => {
-  const r = (size - stroke) / 2;
-  const circ = r * 2 * Math.PI;
-  const offset = circ - (Math.min(score, 100) / 100) * circ;
-  const color = score > 75 ? "text-emerald-500" : score > 50 ? "text-amber-500" : "text-red-500";
-
-  return (
-    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg className="transform -rotate-90 w-full h-full">
-        <circle className="text-zinc-800/60" strokeWidth={stroke} stroke="currentColor" fill="transparent" r={r} cx={size / 2} cy={size / 2} />
-        <circle className={`${color} transition-all duration-500`} strokeWidth={stroke} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" stroke="currentColor" fill="transparent" r={r} cx={size / 2} cy={size / 2} />
-      </svg>
-      <span className={`absolute text-[11px] font-bold ${color}`}>{score}</span>
-    </div>
-  );
+// ── Strategy icon map ──
+const STRAT = {
+  sniper: { icon: Crosshair, color: "text-purple-400" },
+  balanced: { icon: Activity, color: "text-blue-400" },
+  aggressive: { icon: Zap, color: "text-amber-400" },
+  conservative: { icon: Shield, color: "text-emerald-400" },
 };
 
 // ═══════════════════════════════════════════════════════════
-// SIGNAL CARD — PENDING_APPROVAL
+// SIGNAL CARD — PENDING_APPROVAL (Minimal, flat design)
 // ═══════════════════════════════════════════════════════════
-const SignalCard = ({ trade, onApprove, onReject, livePrice }) => {
+const SignalCard = ({ trade, onApprove, onReject }) => {
   const bd = trade.confidence_score?.breakdown || {};
-  const total = trade.confidence_score?.total || 0;
+  const total = Math.round(trade.confidence_score?.total || 0);
   const entry = trade.entry?.price || 0;
-  const maxSlip = trade.constraints?.slippage_per || 0.5;
-  const slip = livePrice && entry ? (Math.abs(livePrice - entry) / entry) * 100 : 0;
-  const isHigh = slip > maxSlip;
+  const stopLoss = trade.entry?.stop_loss;
+  const isBuy = (trade.action || "").toUpperCase() === "BUY";
+
+  // Strategy
+  const stratKey = (trade.strategy_name || "sniper").toLowerCase();
+  const stratMeta = STRAT[stratKey] || STRAT.sniper;
+  const StratIcon = stratMeta.icon;
+
+  // Score color
+  const scoreColor = total >= 75 ? "text-emerald-400" : total >= 50 ? "text-amber-400" : "text-zinc-500";
 
   return (
-    <div className="mb-2.5 animate-in slide-in-from-bottom-2 fade-in duration-300">
-      <div className={cn(
-        "bg-zinc-950 border rounded-lg overflow-hidden transition-colors",
-        isHigh ? "border-red-500/40" : "border-zinc-800 hover:border-zinc-700"
-      )}>
-        {/* Main Content */}
-        <div className="p-3 flex gap-3">
-          {/* Score Ring */}
-          <div className="shrink-0 pt-0.5">
-            <ScoreRing score={total} />
+    <div className="mb-2 animate-in slide-in-from-bottom-2 fade-in duration-200">
+      <div className="bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden hover:border-zinc-700 transition-colors">
+
+        {/* Row 1: Direction + Symbol + Strategy + Score */}
+        <div className="flex items-center justify-between px-3 py-2">
+          <div className="flex items-center gap-2">
+            {/* Direction indicator */}
+            <div className={cn(
+              "flex items-center justify-center w-6 h-6 rounded",
+              isBuy ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+            )}>
+              {isBuy ? <ArrowUp size={14} strokeWidth={2.5} /> : <ArrowDown size={14} strokeWidth={2.5} />}
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold text-zinc-100">{trade.symbol}</span>
+                <span className={cn("text-[9px] font-bold uppercase tracking-wider", isBuy ? "text-emerald-400" : "text-red-400")}>
+                  {isBuy ? "BUY" : "SELL"}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <StratIcon size={9} className={stratMeta.color} />
+                <span className="text-[9px] text-zinc-600 font-medium uppercase tracking-wide">{stratKey}</span>
+              </div>
+            </div>
           </div>
 
-          {/* Details */}
-          <div className="flex-1 min-w-0 space-y-1.5">
-            {/* Symbol + Setup */}
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-zinc-100 truncate">{trade.symbol}</h3>
-              <span className="text-[10px] text-zinc-500 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded shrink-0">{trade.setup_name}</span>
-            </div>
-
-            {/* Price Info — readable sizes */}
-            <div className="flex items-center gap-3 text-xs font-mono">
-              <span className="text-zinc-400">
-                Entry <span className="text-zinc-100 font-semibold">₹{entry}</span>
-              </span>
-              <span className="text-zinc-700">|</span>
-              <span className="text-zinc-400">
-                SL <span className="text-red-400">{trade.entry?.stop_loss || '—'}</span>
-              </span>
-              <span className="text-zinc-700">|</span>
-              <span className="text-zinc-400">
-                <span className="text-zinc-200">{trade.lots}x</span> Lots
-              </span>
-            </div>
-
-            {/* Breakdown — compact inline chips */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/15 text-blue-400 text-[10px] font-medium">
-                Tech {bd.technical || 0}
-              </span>
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-pink-500/10 border border-pink-500/15 text-pink-400 text-[10px] font-medium">
-                Sent {bd.sentiment || 0}
-              </span>
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/15 text-purple-400 text-[10px] font-medium">
-                ML {bd.ml_model || 0}
-              </span>
-              {/* Slippage chip */}
-              {livePrice > 0 && (
-                <span className={cn(
-                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium border",
-                  isHigh ? "bg-red-500/10 border-red-500/20 text-red-400" : "bg-emerald-500/8 border-emerald-500/15 text-emerald-400"
-                )}>
-                  Slip {slip.toFixed(2)}% {isHigh && <AlertTriangle size={9} />}
-                </span>
-              )}
-            </div>
+          {/* Score */}
+          <div className="text-right">
+            <span className={cn("text-lg font-bold font-mono tabular-nums", scoreColor)}>{total}</span>
+            <span className="text-[9px] text-zinc-700 font-medium block -mt-0.5">/120</span>
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900/40 border-t border-zinc-800/50">
-          <span className={cn("text-[10px] font-medium", isHigh ? "text-red-400" : "text-zinc-600")}>
-            {isHigh ? "⚠ Slippage high — use FORCE" : "Ready to execute"}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <Button size="icon" variant="ghost" onClick={() => onReject(trade._id)}
-              className="h-6 w-6 rounded text-zinc-600 hover:text-red-400 hover:bg-red-500/10">
-              <X size={13} />
-            </Button>
-            <Button size="sm" onClick={() => onApprove(trade._id, isHigh)}
-              className={cn("h-6 px-3 text-[10px] gap-1 rounded font-bold tracking-wide",
-                isHigh
-                  ? "bg-amber-600 hover:bg-amber-500 text-white"
-                  : "bg-indigo-600 hover:bg-indigo-500 text-white"
-              )}>
-              <Check size={11} strokeWidth={3} />
-              {isHigh ? "FORCE" : "APPROVE"}
-            </Button>
+        {/* Row 2: Entry · SL · Lots + Breakdown */}
+        <div className="px-3 pb-2 space-y-1.5">
+          <div className="flex items-center gap-4 text-[11px] font-mono text-zinc-500">
+            <span>Entry <span className="text-zinc-200 font-medium">₹{typeof entry === 'number' ? entry.toLocaleString('en-IN') : entry}</span></span>
+            <span>SL <span className="text-red-400/80 font-medium">{stopLoss ? `₹${Number(stopLoss).toLocaleString('en-IN')}` : '—'}</span></span>
+            <span><span className="text-zinc-200 font-medium">{trade.lots || 1}</span> Lots</span>
           </div>
+
+          {/* 3-Layer breakdown — subtle text, not chips */}
+          <div className="flex items-center gap-3 text-[10px] font-mono text-zinc-600">
+            <span>T:<span className="text-zinc-400">{Number(bd.technical || 0).toFixed(0)}</span></span>
+            <span>S:<span className="text-zinc-400">{Number(bd.sentiment || 0).toFixed(0)}</span></span>
+            <span>ML:<span className="text-zinc-400">{Number(bd.ml_model || 0).toFixed(0)}</span></span>
+          </div>
+        </div>
+
+        {/* Row 3: Actions */}
+        <div className="flex items-center justify-end gap-1.5 px-3 py-1.5 border-t border-zinc-800/50">
+          <Button size="sm" variant="ghost" onClick={() => onReject(trade._id)}
+            className="h-6 px-2.5 text-[10px] text-zinc-600 hover:text-red-400 hover:bg-red-500/10 font-medium gap-1">
+            <X size={12} /> Reject
+          </Button>
+          <Button size="sm" onClick={() => onApprove(trade._id)}
+            className="h-6 px-3 text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white font-bold tracking-wide gap-1 rounded">
+            <Check size={11} strokeWidth={3} /> Approve
+          </Button>
         </div>
       </div>
     </div>
@@ -131,34 +109,49 @@ const HistoryCard = ({ trade, onExit }) => {
   const isWin = trade.status === 'WIN';
   const isLoss = trade.status === 'LOSS';
   const isOpen = trade.status === 'OPEN';
+  const isExiting = trade.status === 'EXITING';
   const isRejected = trade.status === 'REJECTED';
 
   const border =
-    isOpen ? "border-emerald-500/20 hover:border-emerald-500/30" :
-      isWin ? "border-emerald-500/15" :
-        isLoss ? "border-red-500/15" :
-          "border-zinc-800/50 opacity-60";
+    isExiting ? "border-amber-700/60 transition-colors animate-pulse" :
+      isOpen ? "border-zinc-700/60 hover:border-zinc-600" :
+        isWin ? "border-zinc-800/50" :
+          isLoss ? "border-zinc-800/50" :
+            "border-zinc-800/30 opacity-50";
 
-  const iconStyle =
-    isWin ? "bg-emerald-950 text-emerald-500 border-emerald-900" :
-      isLoss ? "bg-red-950 text-red-500 border-red-900" :
-        isOpen ? "bg-emerald-950 text-emerald-400 border-emerald-900" :
-          "bg-zinc-900 text-zinc-500 border-zinc-800";
+  const isAutoExecuted = trade.logs?.[0]?.message?.includes("Auto-Executed");
 
   return (
     <div className={cn("group flex items-center gap-3 p-2.5 mb-1 rounded-lg border transition-all", border)}>
-      <div className={cn("p-1.5 rounded border shrink-0", iconStyle)}>
+      <div className={cn("p-1.5 rounded shrink-0",
+        isWin ? "bg-emerald-950/50 text-emerald-500" :
+          isLoss ? "bg-red-950/50 text-red-500" :
+            isExiting ? "bg-amber-950/50 text-amber-500" :
+              isOpen ? "bg-indigo-950/50 text-indigo-400" :
+                "bg-zinc-900 text-zinc-600"
+      )}>
         {isWin ? <TrendingUp size={12} /> :
           isLoss ? <TrendingDown size={12} /> :
             isRejected ? <Ban size={12} /> :
-              <Activity size={12} />}
+              <Activity size={12} className={isExiting ? "animate-spin" : ""} />}
       </div>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className={cn("font-semibold text-xs", isRejected ? "text-zinc-500 line-through" : "text-zinc-200")}>{trade.symbol}</span>
+          {trade.action && (
+            <span className={cn("text-[8px] font-bold uppercase tracking-wider",
+              trade.action === "BUY" ? "text-emerald-500/60" : "text-red-500/60"
+            )}>{trade.action}</span>
+          )}
           {isOpen && (
-            <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 animate-pulse uppercase tracking-wider">Live</span>
+            <span className="text-[8px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 animate-pulse uppercase tracking-wider">Open</span>
+          )}
+          {isExiting && (
+            <span className="text-[8px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 animate-pulse uppercase tracking-wider">Exiting</span>
+          )}
+          {isAutoExecuted && (
+            <span className="text-[8px] font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 uppercase tracking-wider">Auto</span>
           )}
         </div>
         {!isRejected && (
@@ -170,9 +163,9 @@ const HistoryCard = ({ trade, onExit }) => {
 
       <div className="shrink-0 flex items-center gap-2">
         {isOpen && onExit && (
-          <Button size="sm" variant="outline" onClick={() => onExit(trade._id)}
-            className="h-5 px-2 text-[9px] gap-1 rounded border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 font-bold tracking-wide">
-            <LogOut size={8} /> SELL
+          <Button size="sm" variant="outline" onClick={() => onExit(trade._id)} disabled={isExiting}
+            className="h-5 px-2 text-[9px] gap-1 rounded border-zinc-700 text-zinc-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 font-bold tracking-wide disabled:opacity-50">
+            <LogOut size={8} /> {isExiting ? "Closing..." : "Exit Position"}
           </Button>
         )}
         {!isRejected ? (
@@ -183,11 +176,11 @@ const HistoryCard = ({ trade, onExit }) => {
               {trade.pnl > 0 ? '+' : ''}{trade.pnl || 0}
             </div>
             <div className="text-[8px] text-zinc-600 font-medium uppercase tracking-wider">
-              {isOpen ? "UNREALIZED" : "PNL"}
+              {isOpen ? "unrealized" : "PNL"}
             </div>
           </div>
         ) : (
-          <span className="text-[9px] font-bold text-zinc-600 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">REJECTED</span>
+          <span className="text-[9px] font-bold text-zinc-700 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">Rejected</span>
         )}
       </div>
     </div>
@@ -228,7 +221,7 @@ export default function TradeFeed({ trades, onApprove, onReject, onExit, livePri
 
             {displayTrades.map(trade => (
               trade.status === 'PENDING_APPROVAL'
-                ? <SignalCard key={trade._id || trade.trade_id} trade={trade} onApprove={onApprove} onReject={onReject} livePrice={livePrice} />
+                ? <SignalCard key={trade._id || trade.trade_id} trade={trade} onApprove={onApprove} onReject={onReject} />
                 : <HistoryCard key={trade._id || trade.trade_id} trade={trade} onExit={onExit} />
             ))}
             <div ref={bottomRef} className="h-0.5" />

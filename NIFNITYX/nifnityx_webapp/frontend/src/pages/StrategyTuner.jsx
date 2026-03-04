@@ -24,28 +24,177 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import api, { updateStrategyConfig } from "@/lib/api";
+import api, { updateStrategyConfig, setActiveStrategy, fetchActiveStrategy } from "@/lib/api";
+
+// ── Strategy definitions sourced from Meet's Python trading_strategies/ ──
+const STRATEGIES = [
+  {
+    id: "sniper",
+    label: "Sniper",
+    desc: "Only takes 5-star setups. Lowest trade frequency, highest quality filter.",
+    icon: Crosshair,
+    color: "text-purple-400",
+    activeClass: "bg-purple-950/20 border-purple-500/50 ring-1 ring-purple-500/20",
+    details: {
+      title: "Sniper Strategy",
+      subtitle: "Precision over frequency — the original 3-Layer system behaviour.",
+      params: [
+        { label: "Min Score", value: "60 / 120" },
+        { label: "ML Block", value: "< 15 / 40" },
+        { label: "ML Strong", value: "≥ 22 / 40" },
+        { label: "Max Positions", value: "2 simultaneous" },
+        { label: "Max Daily Trades", value: "8" },
+        { label: "Daily Drawdown Cap", value: "2.5%" },
+      ],
+      lotTiers: [
+        { range: "ML < 15", lots: "0.5 lots", note: "Minimum allocation" },
+        { range: "ML 15–21", lots: "0.75 lots", note: "Standard" },
+        { range: "ML ≥ 22", lots: "1.25 lots", note: "High conviction" },
+      ],
+      riskGates: [
+        "Hard blocks on: max positions, daily trade count, and 2.5% intraday drawdown.",
+        "ML scores below 15 are blocked entirely — no exceptions.",
+        "Disaster flag (extreme news events) halts all entries.",
+      ],
+      verdict: "Best for: Patient traders who want fewer, higher-quality entries with tight risk control.",
+    },
+  },
+  {
+    id: "balanced",
+    label: "Balanced",
+    desc: "Steady approach with loss-streak protection. Reduces lot size after 2 daily losses.",
+    icon: Activity,
+    color: "text-blue-400",
+    activeClass: "bg-blue-950/20 border-blue-500/50 ring-1 ring-blue-500/20",
+    details: {
+      title: "Balanced Strategy",
+      subtitle: "Consistent trading with built-in capital protection on losing streaks.",
+      params: [
+        { label: "Min Score", value: "65 / 120" },
+        { label: "ML Block", value: "< 18 / 40" },
+        { label: "ML Medium", value: "≥ 25 / 40" },
+        { label: "Max Positions", value: "2 simultaneous" },
+        { label: "Max Daily Trades", value: "3" },
+        { label: "Daily Drawdown Cap", value: "2.0%" },
+      ],
+      lotTiers: [
+        { range: "ML < 18", lots: "0.75 lots", note: "Cautious" },
+        { range: "ML 18–24", lots: "1.0 lots", note: "Standard" },
+        { range: "ML ≥ 25", lots: "1.25 lots", note: "Confident" },
+      ],
+      riskGates: [
+        "After 2 losses in the same day, lot size is reduced by 0.25 (floor: 0.5).",
+        "Hard blocks at 2.0% daily drawdown, 2 open positions, or 3 daily trades.",
+        "ML below 18 is rejected — slightly higher bar than Sniper.",
+      ],
+      verdict: "Best for: Normal market conditions. Protects capital during losing streaks without shutting down entirely.",
+    },
+  },
+  {
+    id: "aggressive",
+    label: "Aggressive",
+    desc: "High frequency with auto-degradation. Falls back to Balanced thresholds if drawdown exceeds 3%.",
+    icon: Zap,
+    color: "text-amber-400",
+    activeClass: "bg-amber-950/20 border-amber-500/50 ring-1 ring-amber-500/20",
+    details: {
+      title: "Aggressive Strategy",
+      subtitle: "Maximum trade frequency with a built-in circuit breaker.",
+      params: [
+        { label: "Min Score (Normal)", value: "55 / 120" },
+        { label: "Min Score (Degraded)", value: "65 / 120" },
+        { label: "ML Block (Normal)", value: "< 12 / 40" },
+        { label: "ML Block (Degraded)", value: "< 18 / 40" },
+        { label: "Max Positions", value: "4 simultaneous" },
+        { label: "Max Daily Trades", value: "6" },
+        { label: "Hard DD Stop", value: "3.5%" },
+        { label: "Degraded Trigger", value: "3.0% DD" },
+      ],
+      lotTiers: [
+        { range: "ML < 12", lots: "1.0 lots", note: "Normal mode" },
+        { range: "ML 12–21", lots: "1.25 lots", note: "Normal mode" },
+        { range: "ML ≥ 22", lots: "1.5 lots", note: "Maximum sizing" },
+      ],
+      riskGates: [
+        "When daily drawdown exceeds 3%, the strategy switches to Balanced thresholds for the rest of the session.",
+        "In degraded mode: ML block rises to 18, min score rises to 65, and lot sizing drops to Balanced tiers (0.75 / 1.0 / 1.25).",
+        "Hard stop at 3.5% daily drawdown — no more trades regardless of mode.",
+      ],
+      verdict: "Best for: High-volatility trending days. The degradation acts as self-healing — a bad morning won't become a catastrophic day.",
+    },
+  },
+  {
+    id: "conservative",
+    label: "Conservative",
+    desc: "Maximum protection. Trades only 10:00–14:30 IST and locks out after 2 losses.",
+    icon: Shield,
+    color: "text-emerald-400",
+    activeClass: "bg-emerald-950/20 border-emerald-500/50 ring-1 ring-emerald-500/20",
+    details: {
+      title: "Conservative Strategy",
+      subtitle: "Capital preservation first — only trades during the safest market hours.",
+      params: [
+        { label: "Min Score", value: "70 / 120" },
+        { label: "ML Block", value: "< 22 / 40" },
+        { label: "ML Strong", value: "≥ 28 / 40" },
+        { label: "Max Positions", value: "1 (single focus)" },
+        { label: "Max Daily Trades", value: "2" },
+        { label: "Daily Drawdown Cap", value: "1.5%" },
+        { label: "Trading Window", value: "10:00 – 14:30 IST" },
+        { label: "Loss Lockout", value: "After 2 losses" },
+      ],
+      lotTiers: [
+        { range: "ML < 22", lots: "0.5 lots", note: "Minimum" },
+        { range: "ML 22–27", lots: "0.75 lots", note: "Standard" },
+        { range: "ML ≥ 28", lots: "1.0 lots", note: "Max allocation" },
+      ],
+      riskGates: [
+        "Avoids the 9:15–10:00 gap-fill phase and 14:30–15:30 expiry/repo spike zone.",
+        "After 2 consecutive daily losses, trading halts for the rest of the day. Resets every morning.",
+        "Only 1 position at a time — never stacks exposure. Max 2 trades per day.",
+        "Lot size capped at 1.0 — never sizes aggressively, even on high ML.",
+      ],
+      verdict: "Best for: Cautious traders. Highest ML bar (22/40), tightest drawdown cap (1.5%), and a professional 'know when to walk away' lockout.",
+    },
+  },
+];
 
 export default function StrategyTuner() {
   const [loading, setLoading] = useState(true);
   const [showAutoConfirm, setShowAutoConfirm] = useState(false);
+  const [switching, setSwitching] = useState(false);
 
   // Configuration State
   const [config, setConfig] = useState({
     executionMode: "manual",
-    profile: "balanced"
+    profile: "sniper"
   });
 
-  // Fetch initial settings from User Profile
+  // Fetch initial settings from User Profile + active strategy
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const { data } = await api.get("/auth/me");
-        if (data.settings) {
-          setConfig({
-            executionMode: data.settings.executionMode || "manual",
-            profile: data.settings.strategy?.profile || "balanced"
-          });
+        const [userRes, stratRes] = await Promise.allSettled([
+          api.get("/auth/me"),
+          fetchActiveStrategy(),
+        ]);
+
+        let profile = "sniper";
+
+        if (userRes.status === "fulfilled" && userRes.value.data.settings) {
+          const settings = userRes.value.data.settings;
+          setConfig(prev => ({
+            ...prev,
+            executionMode: settings.executionMode || "manual",
+            profile: settings.strategy?.profile || "sniper",
+          }));
+          profile = settings.strategy?.profile || "sniper";
+        }
+
+        // Use the active strategy from backend if available (takes precedence)
+        if (stratRes.status === "fulfilled" && stratRes.value.data.active) {
+          profile = stratRes.value.data.active;
+          setConfig(prev => ({ ...prev, profile }));
         }
       } catch (error) {
         toast.error("Failed to load strategy settings");
@@ -56,18 +205,36 @@ export default function StrategyTuner() {
     fetchSettings();
   }, []);
 
-  // Generic Update Handler
-  const handleUpdate = async (key, value) => {
-    // 1. Optimistic UI Update
+  // Handle strategy profile change
+  const handleProfileChange = async (newProfile) => {
+    if (newProfile === config.profile) return;
+    const prev = config.profile;
+    setConfig(c => ({ ...c, profile: newProfile }));
+    setSwitching(true);
+
+    try {
+      // Update user settings + hot-swap Python sequentially to prevent MongoDB lock/version conflicts
+      await updateStrategyConfig({ profile: newProfile });
+      await setActiveStrategy(newProfile);
+      toast.success(`Strategy switched to ${newProfile.toUpperCase()}`);
+    } catch (error) {
+      setConfig(c => ({ ...c, profile: prev }));
+      toast.error("Failed to switch strategy");
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  // Handle execution mode change (not strategy)
+  const handleModeUpdate = async (key, value) => {
     const prevConfig = { ...config };
     setConfig(prev => ({ ...prev, [key]: value }));
 
-    // 2. API Call
     try {
       await updateStrategyConfig({ [key]: value });
       toast.success("Configuration Updated");
     } catch (error) {
-      setConfig(prevConfig); // Revert on error
+      setConfig(prevConfig);
       toast.error("Failed to save changes");
     }
   };
@@ -75,14 +242,14 @@ export default function StrategyTuner() {
   // Specific Handler for Auto Mode (Safety Check)
   const handleAutoToggle = (checked) => {
     if (checked) {
-      setShowAutoConfirm(true); // Open Dialog
+      setShowAutoConfirm(true);
     } else {
-      handleUpdate("executionMode", "manual");
+      handleModeUpdate("executionMode", "manual");
     }
   };
 
   const confirmAutoMode = () => {
-    handleUpdate("executionMode", "auto");
+    handleModeUpdate("executionMode", "auto");
     setShowAutoConfirm(false);
   };
 
@@ -101,7 +268,7 @@ export default function StrategyTuner() {
         </p>
       </div>
 
-      {/* 1. EXECUTION LOGIC (Restored & Enhanced) */}
+      {/* 1. EXECUTION LOGIC */}
       <Card className={`border transition-all duration-500 ${config.executionMode === 'auto' ? 'bg-emerald-950/20 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.1)]' : 'bg-zinc-950 border-zinc-800'}`}>
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-4">
@@ -143,54 +310,22 @@ export default function StrategyTuner() {
         </div>
       </Card>
 
-      {/* 2. STRATEGY PROFILE (The Personality) */}
+      {/* 2. STRATEGY PROFILE */}
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-zinc-200 flex items-center gap-2">
           <BrainCircuit size={18} className="text-zinc-400" /> Strategy Profile
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            {
-              id: "conservative",
-              label: "Conservative",
-              desc: "High win-rate focus. Waits for perfect confluence.",
-              icon: Shield,
-              color: "text-emerald-400",
-              activeClass: "bg-emerald-950/20 border-emerald-500/50 ring-1 ring-emerald-500/20"
-            },
-            {
-              id: "balanced",
-              label: "Balanced",
-              desc: "Standard approach. Equal weight on trend & reversion.",
-              icon: Activity,
-              color: "text-blue-400",
-              activeClass: "bg-blue-950/20 border-blue-500/50 ring-1 ring-blue-500/20"
-            },
-            {
-              id: "aggressive",
-              label: "Aggressive",
-              desc: "High frequency. Takes trades on lower ML confidence.",
-              icon: Zap,
-              color: "text-amber-400",
-              activeClass: "bg-amber-950/20 border-amber-500/50 ring-1 ring-amber-500/20"
-            },
-            {
-              id: "sniper",
-              label: "Sniper",
-              desc: "Ultra-precise. Only takes 5-star setups with high RR.",
-              icon: Crosshair,
-              color: "text-purple-400",
-              activeClass: "bg-purple-950/20 border-purple-500/50 ring-1 ring-purple-500/20"
-            }
-          ].map((strategy) => (
+          {STRATEGIES.map((strategy) => (
             <div
               key={strategy.id}
-              onClick={() => handleUpdate("profile", strategy.id)}
+              onClick={() => !switching && handleProfileChange(strategy.id)}
               className={`
-                        cursor-pointer rounded-xl border p-5 transition-all duration-200 relative group
-                        ${config.profile === strategy.id ? strategy.activeClass : "bg-zinc-900/40 border-zinc-800 hover:bg-zinc-900 hover:border-zinc-700"}
-                    `}
+                cursor-pointer rounded-xl border p-5 transition-all duration-200 relative group
+                ${switching ? "opacity-60 pointer-events-none" : ""}
+                ${config.profile === strategy.id ? strategy.activeClass : "bg-zinc-900/40 border-zinc-800 hover:bg-zinc-900 hover:border-zinc-700"}
+              `}
             >
               <div className="flex items-start justify-between mb-4">
                 <div className={`p-2 rounded-lg bg-black/40 border border-zinc-800/50 ${strategy.color}`}>
@@ -209,32 +344,64 @@ export default function StrategyTuner() {
                           <Info size={14} />
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="bg-zinc-950 border-zinc-800 text-zinc-100 sm:max-w-md">
+                      <DialogContent className="bg-zinc-950 border-zinc-800 text-zinc-100 sm:max-w-lg max-h-[85vh] overflow-y-auto">
                         <DialogHeader>
-                          <DialogTitle className="flex items-center gap-2 text-lg">
-                            <BrainCircuit size={20} className="text-indigo-500" />
-                            How this Strategy Works
+                          <DialogTitle className="flex items-center gap-2.5 text-base">
+                            <div className={`p-1.5 rounded-md bg-black/40 border border-zinc-800/50 ${strategy.color}`}>
+                              <strategy.icon size={16} />
+                            </div>
+                            {strategy.details.title}
                           </DialogTitle>
+                          <DialogDescription className="text-zinc-400 text-xs mt-1">
+                            {strategy.details.subtitle}
+                          </DialogDescription>
                         </DialogHeader>
-                        <div className="space-y-4 text-sm text-zinc-400 mt-2">
-                          <h3 className="text-zinc-200 font-semibold text-base">Multi-Vector Sentiment Analysis</h3>
-                          <p>
-                            This algorithm operates on a high-frequency decision matrix that fuses Technical Price Action with ML-driven Sentiment Analysis.
-                          </p>
-                          <ul className="space-y-3 px-1">
-                            <li className="flex gap-2">
-                              <span className="font-bold text-zinc-200 shrink-0">1. Pattern Recognition:</span>
-                              <span>Scans for institutional footprint zones (Order Blocks) and volatility contractions to identify potential breakout or reversal points.</span>
-                            </li>
-                            <li className="flex gap-2">
-                              <span className="font-bold text-zinc-200 shrink-0">2. Sentiment Validation:</span>
-                              <span>Cross-references the technical setup against our proprietary 'Market Mood' score, derived from real-time options chain analysis and volume deltas.</span>
-                            </li>
-                            <li className="flex gap-2">
-                              <span className="font-bold text-zinc-200 shrink-0">3. Risk Guardrails:</span>
-                              <span>Trades are only executed when the 'Confidence Score' exceeds 65%, ensuring that entry timing aligns with peak momentum to minimize drawdown.</span>
-                            </li>
-                          </ul>
+
+                        <div className="space-y-5 mt-3">
+                          {/* Parameters Table */}
+                          <div>
+                            <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-2">Parameters</h4>
+                            <div className="rounded-lg border border-zinc-800/60 overflow-hidden">
+                              {strategy.details.params.map((p, i) => (
+                                <div key={i} className={`flex justify-between px-3 py-2 text-xs ${i % 2 === 0 ? "bg-zinc-900/30" : "bg-zinc-900/10"}`}>
+                                  <span className="text-zinc-400">{p.label}</span>
+                                  <span className="text-zinc-200 font-mono font-medium">{p.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Lot Sizing */}
+                          <div>
+                            <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-2">ML-Based Lot Sizing</h4>
+                            <div className="space-y-1.5">
+                              {strategy.details.lotTiers.map((tier, i) => (
+                                <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-900/30 text-xs">
+                                  <span className="text-zinc-500 font-mono w-20 shrink-0">{tier.range}</span>
+                                  <span className={`font-semibold ${strategy.color}`}>{tier.lots}</span>
+                                  <span className="text-zinc-500 ml-auto">{tier.note}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Risk Gates */}
+                          <div>
+                            <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-2">Risk Gates</h4>
+                            <ul className="space-y-2">
+                              {strategy.details.riskGates.map((gate, i) => (
+                                <li key={i} className="flex gap-2 text-xs text-zinc-400 leading-relaxed">
+                                  <span className="text-zinc-600 mt-0.5 shrink-0">•</span>
+                                  <span>{gate}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* Verdict */}
+                          <div className="rounded-lg bg-zinc-900/50 border border-zinc-800/40 px-3 py-2.5">
+                            <p className="text-xs text-zinc-300 leading-relaxed">{strategy.details.verdict}</p>
+                          </div>
                         </div>
                       </DialogContent>
                     </Dialog>

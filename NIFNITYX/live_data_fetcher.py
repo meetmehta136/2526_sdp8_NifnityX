@@ -240,8 +240,7 @@ class AngelOneDataFetcher:
         🔒 DISABLED FOR PAPER TRADING
         This function CANNOT execute real orders
         """
-        print("❌ SAFETY LOCK: Real Order Placement is DISABLED.")
-        return None
+        raise Exception("🚨 ORDER PLACEMENT DISABLED - PAPER TRADING MODE ONLY")
     
     
     def is_market_open(self):

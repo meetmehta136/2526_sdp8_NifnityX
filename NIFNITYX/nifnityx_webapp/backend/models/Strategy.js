@@ -8,6 +8,12 @@ const strategySchema = new mongoose.Schema(
       required: true,
       unique: true, // One config per user
     },
+    // The currently active Python engine strategy
+    active_strategy: {
+      type: String,
+      enum: ["sniper", "balanced", "aggressive", "conservative"],
+      default: "sniper",
+    },
     // The Master Switch
     execution_mode: {
       type: String,
@@ -16,7 +22,7 @@ const strategySchema = new mongoose.Schema(
     },
     // Strategies the Python Engine should look for
     active_strategies: [{
-      type: String, 
+      type: String,
       // e.g., "trend_bounce", "gamma_scalp", "breakout"
     }],
     // Risk Management Rules

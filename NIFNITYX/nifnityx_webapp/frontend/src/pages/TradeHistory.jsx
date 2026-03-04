@@ -13,6 +13,7 @@ import {
   Search, CheckCircle2, XCircle, Clock, Ban,
   FileText, Zap, X
 } from "lucide-react";
+import { useTrades } from "@/contexts/TradeContext";
 
 export default function TradeHistory() {
   const [trades, setTrades] = useState([]);
@@ -22,6 +23,9 @@ export default function TradeHistory() {
   const [activeTab, setActiveTab] = useState("all");
   const [modeFilter, setModeFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Listen for global trade updates (socket-driven changes)
+  const { trades: liveTrades } = useTrades();
 
   const loadTrades = async () => {
     setLoading(true);
@@ -42,6 +46,11 @@ export default function TradeHistory() {
   useEffect(() => {
     loadTrades();
   }, []);
+
+  // Auto-refresh when socket pushes trade updates
+  useEffect(() => {
+    loadTrades();
+  }, [liveTrades.length]);
 
   // --- FILTERING LOGIC ---
   const filteredTrades = trades.filter(trade => {

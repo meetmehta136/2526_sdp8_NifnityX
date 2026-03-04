@@ -8,7 +8,8 @@ import Dashboard from "@/pages/Dashboard";
 import TradeHistory from "@/pages/TradeHistory";
 import StrategyTuner from "@/pages/StrategyTuner";
 import Account from "@/pages/Dashboard/Account";
-import Analytics from "@/pages/Dashboard/Analytics"; // <--- Import New Page
+import Analytics from "@/pages/Dashboard/Analytics";
+import News from "@/pages/News";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import api from "@/lib/api";
 
@@ -64,7 +65,8 @@ function App() {
         {isAuthenticated && (
           <Route element={<DashboardLayout user={user} />}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/analytics" element={<Analytics />} /> {/* <--- Route Updated */}
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/news" element={<News />} />
             <Route path="/history" element={<TradeHistory />} />
             <Route path="/strategy" element={<StrategyTuner />} />
             <Route path="/account" element={<Account />} />

@@ -1,528 +1,411 @@
 #!/usr/bin/env python3
 """
-╔════════════════════════════════════════════════════════════════════════════════╗
-║               🚀 LIVE PAPER TRADING SYSTEM - 3-LAYER NIFTY BOT                ║
-║                  ⚠️  PAPER TRADING ONLY - NO REAL ORDERS                      ║
-╚════════════════════════════════════════════════════════════════════════════════╝
+Paper Trading Engine
+Simulates real trades with slippage, costs, and realistic fills
 """
 
-import sys
-import os
-import time
 import json
 import pandas as pd
-from datetime import datetime, timedelta
-import warnings
-import threading
+from datetime import datetime
+import os
 import requests
 import config
-from fastapi import FastAPI
-import uvicorn
 
-# Disable SSL warnings globally
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-warnings.filterwarnings('ignore')
-
-# Import all components
-from live_data_fetcher import AngelOneDataFetcher
-from cost_calculator import CostCalculator
-from paper_trading_engine import PaperTradingEngine
-
-# Import 3-layer system
-from layer1_trading_bot import TradingBot
-from layer2_sentiment import SentimentAnalyzer
-from layer3_ml_model import EnhancedMLTradePredictor
-
-print("""
-╔════════════════════════════════════════════════════════════════════════════════╗
-║               🚀 LIVE PAPER TRADING SYSTEM - NIFTY 3-LAYER BOT                ║
-║                        Real Data • Paper Trading • Zero Risk                  ║
-╚════════════════════════════════════════════════════════════════════════════════╝
-""")
-
-# ── FastAPI App & Global State ────────────────────────────────────────────────
-app = FastAPI(title="NifnityX Trading Engine", version="1.0")
-PENDING_SIGNALS = {}   # trade_id -> {signal, ltp, ml_score}
-system = None          # Will hold the LivePaperTradingSystem instance
-
-class LivePaperTradingSystem:
-    """Complete live paper trading system"""
+class PaperTradingEngine:
+    """
+    Simulates paper trading with realistic execution
+    """
     
-    def __init__(self):
-        # Configuration
-        self.API_KEY = "fTfdFxAZ"
-        self.SECRET_KEY = "7ac06755-74e5-4ec3-9ec9-391a3b6784dc"
-        self.CLIENT_CODE = "AAAM659971"
-        self.PASSWORD = "9778"
-        self.TOTP_SECRET = "PI3IKVTFHM7KEGYCASLR237UVE"
+    def __init__(self, initial_capital=100000, cost_calculator=None):
+        self.initial_capital = initial_capital
+        self.capital = initial_capital
+        self.cost_calc = cost_calculator
         
-        self.INITIAL_CAPITAL = 100000
-        self.MIN_SCORE = 60
-        self.ML_BLOCK_THRESHOLD = 15
+        # Positions
+        self.open_positions = []
+        self.closed_trades = []
         
-        # Create logs directory
-        self.log_dir = f"paper_trading_logs/{datetime.now().strftime('%Y-%m-%d')}"
-        os.makedirs(self.log_dir, exist_ok=True)
+        # Today's tracking
+        self.today_signals = []
+        self.today_pnl = 0
+        self.today_costs = 0
         
-        # Initialize components
-        print("\n🔧 Initializing components...")
+        # Stats
+        self.total_signals_generated = 0
+        self.total_signals_executed = 0
+        self.total_trades_completed = 0
         
-        self.data_fetcher = AngelOneDataFetcher(
-            self.API_KEY,
-            self.CLIENT_CODE,
-            self.PASSWORD,
-            self.TOTP_SECRET
-        )
+        # Settings
+        self.lot_size = 75  # NIFTY lot size
+        self.max_positions = 3  # Max simultaneous positions
         
-        self.cost_calc = CostCalculator(brokerage_per_order=20)
-        
-        self.paper_engine = PaperTradingEngine(
-            initial_capital=self.INITIAL_CAPITAL,
-            cost_calculator=self.cost_calc
-        )
-        
-        # 3-Layer system
-        self.layer1 = TradingBot(capital=self.INITIAL_CAPITAL)
-        self.layer2 = SentimentAnalyzer()
-        self.layer3 = EnhancedMLTradePredictor(model_path='3layer_results_v5/ml_model_v6.pkl')
-        
-        # Historical data buffer
-        self.historical_data = pd.DataFrame()
-        self.last_candle_time = None
-        
-        # Tracking
-        self.decisions_log = []
-        
-        print("\n✅ System initialized!")
-        print(f"   Logs: {self.log_dir}/")
-        print(f"   Capital: ₹{self.INITIAL_CAPITAL:,}")
+        print(f"📊 Paper Trading Engine initialized")
+        print(f"   Capital: ₹{initial_capital:,}")
+        print(f"   Max Positions: {self.max_positions}")
     
     
-    def login(self):
-        """Login to Angel One"""
-        print("\n🔐 Logging in to Angel One...")
-        return self.data_fetcher.login()
+    def can_take_trade(self):
+        """Check if we can take a new trade"""
+        if len(self.open_positions) >= self.max_positions:
+            return False, "Max positions reached"
+        
+        # Reduced margin requirement for paper trading
+        required_margin = 50000  # Reduced from 150000
+        if self.capital < required_margin:
+            return False, f"Insufficient capital (need ₹{required_margin:,})"
+        
+        return True, "OK"
     
     
-    def warmup(self):
-        """Load historical data for indicators"""
-        print("\n📊 Loading historical data for indicators...")
+    def _send_update_to_node(self, trade_data):
+        """Send trade close update to Node.js Mission Control"""
+        try:
+            payload = {
+                "trade_id": trade_data.get('trade_id', trade_data.get('signal_id')),
+                "status": "WIN" if trade_data.get('net_pnl', 0) > 0 else "LOSS",
+                "exit": {
+                    "price": trade_data.get('exit_price'),
+                    "time": str(trade_data.get('exit_time')),
+                    "reason": trade_data.get('exit_reason')
+                },
+                "pnl": trade_data.get('net_pnl', 0),
+                "pnl_percentage": (
+                    trade_data.get('net_pnl', 0) / 
+                    (trade_data.get('entry_price', 1) * trade_data.get('lots', 1) * 75)
+                ) * 100,
+                # --- NEW LINES ADDED FOR NIFNITYX ANALYTICS ---
+                "gross_pnl": trade_data.get('gross_pnl', 0),
+                "total_costs": trade_data.get('total_costs', 0),
+                "cost_breakdown": trade_data.get('exit_costs', {}),
+                "strategy_name": trade_data.get('strategy_name', 'sniper')
+            }
+            requests.post(
+                f"{config.NODE_API_URL}/update",
+                json=payload,
+                headers={"x-python-secret": config.NODE_SECRET},
+                timeout=5
+            )
+            print(f"📡 Trade update sent to Mission Control: {payload['trade_id']} → {payload['status']}")
+        except Exception as e:
+            print(f"⚠️  Could not send update to Node.js: {e}")
+    
+    
+    def execute_signal(self, signal, current_price, ml_score=20, current_time=None):
+        """
+        Execute a signal (paper trade)
         
-        hist_data = self.data_fetcher.get_historical_data(days=5)
+        Args:
+            signal: Signal dict from Layer 1
+            current_price: Current market price
+            ml_score: ML score for lot sizing
+            current_time: Simulated time (defaults to datetime.now())
         
-        if hist_data is not None and len(hist_data) > 0:
-            # Prepare data for Layer 1
-            hist_data = hist_data.rename(columns={'timestamp': 'datetime'})
-            hist_data = hist_data.set_index('datetime')
-            
-            # Calculate indicators
-            self.historical_data = self.layer1.calculate_indicators(hist_data)
-            
-            print(f"   Loaded {len(hist_data)} candles")
-            print(f"   Date range: {hist_data.index.min()} to {hist_data.index.max()}")
-            return True
+        Returns:
+            dict with execution details
+        """
+        self.total_signals_generated += 1
+        
+        # Check if we can trade
+        can_trade, reason = self.can_take_trade()
+        if not can_trade:
+            return {
+                'executed': False,
+                'reason': reason,
+                'signal_id': f"SIG_{self.total_signals_generated}"
+            }
+        
+        # ML-based lot sizing
+        if ml_score < 15:
+            lots = 0.5
+        elif ml_score < 22:
+            lots = 0.75
         else:
-            print("   ⚠️  Could not load historical data")
-            return False
-    
-    
-    def process_candle(self, candle):
-        """Process a new 1-min candle"""
+            lots = 1.25
         
-        # Create new row
-        timestamp = pd.to_datetime(candle['timestamp'])
-        new_row = pd.DataFrame([{
-            'open': candle['open'],
-            'high': candle['high'],
-            'low': candle['low'],
-            'close': candle['close'],
-            'volume': candle['volume']
-        }], index=[timestamp])
+        # Round to nearest 0.5
+        lots = round(lots * 2) / 2
+        if lots < 0.5:
+            lots = 0.5
         
-        # Add to historical data - FIXED: ignore_index changed to ignore_index=False
-        self.historical_data = pd.concat([self.historical_data, new_row])
-        self.historical_data = self.historical_data.tail(500)
+        # Simulate slippage
+        action = signal['action']
+        entry_price = self.cost_calc.calculate_slippage(current_price, action)
         
-        # Recalculate indicators
-        self.historical_data = self.layer1.calculate_indicators(self.historical_data)
-        
-        # Generate signal
-        idx = len(self.historical_data) - 1
-        signal = self.layer1.generate_signal(self.historical_data, idx)
-        
-        if signal:
-            print(f"\n🎯 SIGNAL GENERATED - {timestamp}")
-            print(f"   {signal['action']} @ ₹{signal['price']:,.2f}")
-            print(f"   Stop: ₹{signal['stop']:,.2f} | Target: ₹{signal['target']:,.2f}")
-            print(f"   Setup: {signal.get('setup', 'unknown')}")
-            
-            # Evaluate with 3 layers
-            self.evaluate_signal(signal, candle['close'])
+        # Calculate entry costs
+        if action == 'BUY':
+            entry_costs = self.cost_calc.calculate_entry_costs(entry_price, self.lot_size * lots)
         else:
-            # Just update positions
-            self.paper_engine.update_positions(candle['close'], datetime.now())
-    
-    
-    def evaluate_signal(self, signal, current_price):
-        """Evaluate signal using 3-layer system"""
+            entry_costs = self.cost_calc.calculate_exit_costs(entry_price, self.lot_size * lots)
         
-        # Layer 1: Technical
-        technical_score = signal.get('technical_score', 60)
-        
-        # Layer 2: Sentiment
-        sentiment_data = self.layer2.get_sentiment_score()
-        sentiment_score = sentiment_data['sentiment_boost']
-        disaster_flag = sentiment_data['disaster_flag']
-        
-        # Layer 3: ML
-        features = signal.get('features', {})
-        ml_data = self.layer3.predict_trade_quality(features)
-        ml_score = ml_data['ml_score']
-        
-        # Final score
-        final_score = technical_score + sentiment_score + ml_score
-        
-        # Decision
-        execute = False
-        reason = []
-        
-        if ml_score < self.ML_BLOCK_THRESHOLD:
-            execute = False
-            reason.append(f"❌ ML too weak ({ml_score:.0f}/40)")
-        elif disaster_flag:
-            execute = False
-            reason.append("🚨 DISASTER")
-        elif final_score >= self.MIN_SCORE:
-            execute = True
-            if ml_score >= 22:
-                reason.append(f"🔥 Strong ML: {ml_score:.0f}")
-            else:
-                reason.append(f"✅ Good ML: {ml_score:.0f}")
-        else:
-            execute = False
-            reason.append(f"❌ Score {final_score:.1f}")
-        
-        decision = {
-            'timestamp': datetime.now(),
-            'signal': signal,
-            'technical_score': technical_score,
-            'sentiment_score': sentiment_score,
+        # Create position
+        position = {
+            'signal_id': f"SIG_{self.total_signals_generated}",
+            'trade_id': f"TRD_{len(self.closed_trades) + len(self.open_positions) + 1}",
+            'entry_time': current_time or datetime.now(),
+            'action': action,
+            'entry_price': entry_price,
+            'lots': lots,
+            'quantity': self.lot_size * lots,
+            'stop_loss': signal['stop'],
+            'target': signal['target'],
+            'trail_stop': signal['stop'],   # mirrors TradingBot.update_trade() trailing logic
+            'partial_closed': False,
+            'setup': signal.get('setup', 'unknown'),
             'ml_score': ml_score,
-            'final_score': final_score,
-            'disaster_flag': disaster_flag,
-            'execute': execute,
-            'reason': ' | '.join(reason)
+            'entry_costs': entry_costs,
+            'status': 'OPEN'
         }
         
-        self.decisions_log.append(decision)
+        self.open_positions.append(position)
+        self.total_signals_executed += 1
+        self.total_trades_completed += 1  # FIX: Increment counter when trade opens
+        self.today_costs += entry_costs['total']
         
-        print(f"\n📊 3-LAYER EVALUATION:")
-        print(f"   Technical: {technical_score}/60")
-        print(f"   Sentiment: {sentiment_score:+.1f}/20")
-        print(f"   ML Score:  {ml_score:.1f}/40")
-        print(f"   ─────────────────────")
-        print(f"   FINAL:     {final_score:.1f}/120")
-        print(f"   Decision:  {decision['reason']}")
+        print(f"\n✅ PAPER TRADE EXECUTED")
+        print(f"   📊 Trade Counter: {self.total_trades_completed} trades executed")
+        print(f"   {action} {lots} Lot @ ₹{entry_price:,.2f}")
+        print(f"   Stop: ₹{signal['stop']:,.2f} | Target: ₹{signal['target']:,.2f}")
+        print(f"   Entry Costs: ₹{entry_costs['total']:,.2f}")
+        print(f"   🔍 Total open positions: {len(self.open_positions)}")
         
-        # Execute if approved — forward to Node.js Mission Control
-        if execute:
-            trade_id = f"T-{int(time.time())}"
-            
-            # ML-based lot sizing (mirrors engine logic)
-            calculated_lots = 1
-            if ml_score < 15:
-                calculated_lots = 0.5
-            elif ml_score < 22:
-                calculated_lots = 0.75
-            else:
-                calculated_lots = 1.25
-            calculated_lots = round(calculated_lots * 2) / 2
-            if calculated_lots < 0.5:
-                calculated_lots = 0.5
-            
-            payload = {
-                "trade_id": trade_id,
-                "symbol": "NIFTY",
-                "setup_name": signal.get('setup', 'ML_Strategy'),
-                "entry": {
-                    "price": current_price,
-                    "time": datetime.utcnow().isoformat(),
-                    "stop_loss": signal.get('stop')
-                },
-                "confidence_score": {
-                    "total": float(final_score),
-                    "breakdown": {
-                        "technical": float(technical_score),
-                        "sentiment": float(sentiment_score),
-                        "ml": float(ml_score)
-                    }
-                },
-                "lots": int(calculated_lots),
-                "constraints": {"slippage_per": 0.5}
-            }
-            
-            # Store context for when Node.js approves execution
-            PENDING_SIGNALS[trade_id] = {
-                "signal": signal,
-                "ltp": current_price,
-                "ml_score": ml_score
-            }
-            
-            # Send signal to Node.js Mission Control
-            try:
-                requests.post(
-                    f"{config.NODE_API_URL}/signal",
-                    json=payload,
-                    headers={"x-python-secret": config.NODE_SECRET},
-                    timeout=5,
-                    verify=False
+        return {
+            'executed': True,
+            'position': position,
+            'signal_id': position['signal_id'],
+            'trade_id': position['trade_id']
+        }
+    
+    
+    def update_positions(self, candle_data, current_time):
+        """
+        Update open positions with TRAILING STOP — mirrors TradingBot.update_trade() exactly.
+
+        Without this, every trade the backtest closes as STOP_HIT-WIN (trailing stop in
+        profit zone) becomes a STOP_HIT-LOSS here (static original stop). This was the
+        sole reason demo showed 100% losses while backtest showed ~55% win rate.
+
+        Logic (identical to layer1_trading_bot.py):
+          BUY:  once profit >= 1.5R → scale out half, trail to breakeven
+                once profit >= 1.0R → trail to entry + 0.7R
+                exit: low <= trail_stop (STOP_HIT) or high >= target (TARGET_HIT)
+          SELL: mirror image
+        """
+        if not self.open_positions:
+            return
+
+        if isinstance(candle_data, dict):
+            current_price = candle_data.get('close', candle_data.get('price', 0))
+            high_price    = candle_data.get('high', current_price)
+            low_price     = candle_data.get('low',  current_price)
+        else:
+            current_price = high_price = low_price = float(candle_data)
+
+        positions_to_close = []
+
+        for i, pos in enumerate(self.open_positions):
+            action      = pos['action']
+            entry_price = pos['entry_price']
+            stop_loss   = pos['stop_loss']
+            target      = pos['target']
+            trade_id    = pos.get('trade_id', 'UNKNOWN')
+
+            # Backfill trail_stop for any position opened before this fix
+            if 'trail_stop' not in pos:
+                pos['trail_stop'] = stop_loss
+            if 'partial_closed' not in pos:
+                pos['partial_closed'] = False
+
+            trail_stop = pos['trail_stop']
+
+            if i == 0:
+                print(
+                    f"\r🔍 {trade_id}: {action} Entry={entry_price:.2f} "
+                    f"Trail={trail_stop:.2f} Target={target:.2f} "
+                    f"| L={low_price:.2f} H={high_price:.2f}",
+                    end='', flush=True
                 )
-                print(f"\n📡 Signal sent to Mission Control: {trade_id}")
-            except Exception as e:
-                print(f"\n⚠️  Could not reach Mission Control: {e}")
-                # Fallback: execute directly if Node is unreachable
-                print(f"   ↪ Executing trade locally as fallback...")
-                result = self.paper_engine.execute_signal(signal, current_price, ml_score)
-                if result:
-                    result['trade_id'] = trade_id
-                decision['execution_result'] = result
-                PENDING_SIGNALS.pop(trade_id, None)
-            
-            # Original direct execution (now handled via webhook):
-            # result = self.paper_engine.execute_signal(signal, current_price, ml_score)
-            # decision['execution_result'] = result
+
+            if action == 'BUY':
+                pnl_pts  = current_price - entry_price
+                risk_pts = entry_price - stop_loss
+
+                # Scale-out at 1.5R: take half off, move trail to breakeven
+                if not pos['partial_closed'] and pnl_pts >= risk_pts * 1.5:
+                    partial_lots = pos['lots'] // 2
+                    if partial_lots > 0:
+                        self.capital   += partial_lots * pnl_pts * self.lot_size
+                        self.today_pnl += partial_lots * pnl_pts * self.lot_size
+                        pos['lots']          -= partial_lots
+                        pos['partial_closed'] = True
+                        pos['trail_stop']     = entry_price
+                        trail_stop            = entry_price
+
+                # Trail: lock in 0.7R profit
+                if pnl_pts > risk_pts * 1.0:
+                    new_trail = entry_price + risk_pts * 0.7
+                    if new_trail > trail_stop:
+                        pos['trail_stop'] = new_trail
+                        trail_stop = new_trail
+
+                if low_price <= trail_stop:
+                    positions_to_close.append((i, trail_stop, 'STOP_HIT', current_time))
+                elif high_price >= target:
+                    positions_to_close.append((i, target, 'TARGET_HIT', current_time))
+
+            else:  # SELL
+                pnl_pts  = entry_price - current_price
+                risk_pts = stop_loss - entry_price
+
+                # Scale-out at 1.5R
+                if not pos['partial_closed'] and pnl_pts >= risk_pts * 1.5:
+                    partial_lots = pos['lots'] // 2
+                    if partial_lots > 0:
+                        self.capital   += partial_lots * pnl_pts * self.lot_size
+                        self.today_pnl += partial_lots * pnl_pts * self.lot_size
+                        pos['lots']          -= partial_lots
+                        pos['partial_closed'] = True
+                        pos['trail_stop']     = entry_price
+                        trail_stop            = entry_price
+
+                # Trail: lock in 0.7R profit
+                if pnl_pts > risk_pts * 1.0:
+                    new_trail = entry_price - risk_pts * 0.7
+                    if new_trail < trail_stop:
+                        pos['trail_stop'] = new_trail
+                        trail_stop = new_trail
+
+                if high_price >= trail_stop:
+                    positions_to_close.append((i, trail_stop, 'STOP_HIT', current_time))
+                elif low_price <= target:
+                    positions_to_close.append((i, target, 'TARGET_HIT', current_time))
+
+        for i, exit_price, exit_reason, exit_time in reversed(positions_to_close):
+            self.close_position(i, exit_price, exit_reason, exit_time)
+    
+    
+    def close_position(self, position_index, exit_price, exit_reason, exit_time):
+        """Close a position and calculate P&L"""
+        pos = self.open_positions[position_index]
         
-        # Save decision
-        self.save_decision(decision)
-    
-    
-    def run_live(self):
-        """Main live trading loop"""
+        # Apply slippage to exit
+        exit_price_with_slippage = self.cost_calc.calculate_slippage(
+            exit_price, 
+            'SELL' if pos['action'] == 'BUY' else 'BUY'
+        )
         
-        print("\n" + "="*80)
-        print("🚀 STARTING LIVE PAPER TRADING".center(80))
-        print("="*80)
-        print(f"\n   Market Hours: 9:15 AM - 3:30 PM")
-        print(f"   Checking every 60 seconds")
-        print(f"   Press Ctrl+C to stop\n")
+        # Calculate P&L
+        result = self.cost_calc.calculate_trade_pnl(
+            pos['entry_price'],
+            exit_price_with_slippage,
+            pos['action'],
+            self.lot_size,
+            pos['lots']
+        )
         
-        try:
-            while True:
-                # Check if market is open
-                if not self.data_fetcher.is_market_open():
-                    print(f"\r⏸️  Market closed - Waiting... {datetime.now().strftime('%H:%M:%S')}", end='', flush=True)
-                    time.sleep(60)
-                    continue
-                
-                # Get current candle
-                candle = self.data_fetcher.get_current_candle()
-                
-                if candle:
-                    # Check if it's a new candle
-                    if self.last_candle_time != candle['timestamp']:
-                        self.last_candle_time = candle['timestamp']
-                        
-                        print(f"\n{'='*80}")
-                        print(f"📊 {candle['timestamp']} | NIFTY: ₹{candle['close']:,.2f}")
-                        print(f"{'='*80}")
-                        
-                        # Process candle
-                        self.process_candle(candle)
-                        
-                        # Show status
-                        self.show_status()
-                    else:
-                        print(f"\r⏳ Waiting for new candle... {datetime.now().strftime('%H:%M:%S')}", end='', flush=True)
-                else:
-                    print(f"\r⚠️  Data fetch failed {datetime.now().strftime('%H:%M:%S')}", end='', flush=True)
-                
-                # Wait 60 seconds
-                time.sleep(60)
+        # Update position
+        pos['exit_time'] = exit_time
+        pos['exit_price'] = exit_price_with_slippage
+        pos['exit_reason'] = exit_reason
+        pos['gross_pnl'] = result['gross_pnl']
+        pos['exit_costs'] = result['exit_costs']
+        pos['total_costs'] = result['total_costs']
+        pos['net_pnl'] = result['net_pnl']
+        pos['status'] = 'CLOSED'
+        pos['won'] = result['net_pnl'] > 0
         
-        except KeyboardInterrupt:
-            print("\n\n⏹️  Stopped by user")
-            self.end_of_day()
-    
-    
-    def show_status(self):
-        """Show current status"""
-        stats = self.paper_engine.get_daily_stats()
+        # Update capital
+        self.capital += result['net_pnl']
+        self.today_pnl += result['net_pnl']
+        self.today_costs += result['exit_costs']['total']
         
-        print(f"\n📈 TODAY'S STATS:")
-        print(f"   Signals: {stats['signals_generated']} | Executed: {stats['signals_executed']}")
-        print(f"   Trades: {stats['trades_completed']} | Win Rate: {stats['win_rate']:.1f}%")
-        print(f"   Net P&L: ₹{stats['net_pnl']:+,.2f}")
-        print(f"   Capital: ₹{stats['capital']:,.2f} ({stats['return_pct']:+.2f}%)")
-        print(f"   Open: {stats['open_positions']}")
-    
-    
-    def end_of_day(self):
-        """End of day routine"""
-        print("\n" + "="*80)
-        print("📊 END OF DAY - CLOSING POSITIONS & GENERATING REPORT".center(80))
-        print("="*80 + "\n")
+        # Move to closed trades
+        self.closed_trades.append(pos)
+        self.open_positions.pop(position_index)
+        self.total_trades_completed += 1
         
-        # Close all positions
-        ltp = self.data_fetcher.get_ltp()
-        if ltp:
-            self.paper_engine.force_close_all(ltp, "EOD")
+        # Notify Node.js Mission Control
+        self._send_update_to_node(pos)
         
-        # Generate report
-        self.generate_daily_report()
+        emoji = "✅" if pos['won'] else "❌"
+        print(f"\n{emoji} POSITION CLOSED - {exit_reason}")
+        print(f"   {pos['action']} {pos['lots']} Lot")
+        print(f"   Entry: ₹{pos['entry_price']:,.2f} → Exit: ₹{exit_price_with_slippage:,.2f}")
+        print(f"   Gross P&L: ₹{result['gross_pnl']:+,.2f}")
+        print(f"   Costs: ₹{result['total_costs']:,.2f}")
+        print(f"   Net P&L: ₹{result['net_pnl']:+,.2f}")
+        print(f"   Capital: ₹{self.capital:,.2f}")
+    
+    
+    def force_close_all(self, current_price, reason="EOD", current_time=None):
+        """Force close all positions (end of day)"""
+        while self.open_positions:
+            self.close_position(0, current_price, reason, current_time or datetime.now())
+    
+    
+    def get_daily_stats(self, current_time=None):
+        """Get today's statistics"""
+        wins = len([t for t in self.closed_trades if t.get('won', False)])
+        losses = len(self.closed_trades) - wins
+        win_rate = (wins / len(self.closed_trades) * 100) if self.closed_trades else 0
         
-        # Save trades
-        self.paper_engine.save_trades(f"{self.log_dir}/trades.csv")
-        
-        print("\n✅ Day complete!")
+        ref_time = current_time or datetime.now()
+        return {
+            'date': ref_time.strftime('%Y-%m-%d'),
+            'signals_generated': self.total_signals_generated,
+            'signals_executed': self.total_signals_executed,
+            'trades_completed': self.total_trades_completed,
+            'wins': wins,
+            'losses': losses,
+            'win_rate': win_rate,
+            'gross_pnl': self.today_pnl + self.today_costs,
+            'costs': self.today_costs,
+            'net_pnl': self.today_pnl,
+            'capital': self.capital,
+            'return_pct': ((self.capital / self.initial_capital) - 1) * 100,
+            'open_positions': len(self.open_positions)
+        }
     
     
-    def save_decision(self, decision):
-        """Save decision to log"""
-        log_file = f"{self.log_dir}/decisions.jsonl"
-        
-        try:
-            with open(log_file, 'a') as f:
-                json.dump({
-                    'timestamp': str(decision['timestamp']),
-                    'action': decision['signal']['action'],
-                    'price': decision['signal']['price'],
-                    'technical_score': decision['technical_score'],
-                    'sentiment_score': decision['sentiment_score'],
-                    'ml_score': decision['ml_score'],
-                    'final_score': decision['final_score'],
-                    'execute': decision['execute'],
-                    'reason': decision['reason']
-                }, f)
-                f.write('\n')
-        except Exception as e:
-            print(f"⚠️  Could not save decision: {e}")
-    
-    
-    def generate_daily_report(self):
-        """Generate end of day report"""
-        stats = self.paper_engine.get_daily_stats()
-        
-        report = f"""
-╔════════════════════════════════════════════════════════════════════════════════╗
-║                   📊 DAILY PAPER TRADING REPORT                               ║
-║                       {datetime.now().strftime('%Y-%m-%d')}                                              ║
-╚════════════════════════════════════════════════════════════════════════════════╝
-
-📈 PERFORMANCE SUMMARY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Signals Generated:         {stats['signals_generated']}
-Signals Executed:          {stats['signals_executed']}
-Execution Rate:            {stats['signals_executed']/stats['signals_generated']*100 if stats['signals_generated'] > 0 else 0:.1f}%
-
-Trades Completed:          {stats['trades_completed']}
-Winning Trades:            {stats['wins']}
-Losing Trades:             {stats['losses']}
-Win Rate:                  {stats['win_rate']:.1f}%
-
-💰 FINANCIAL SUMMARY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Gross P&L:                 ₹{stats['gross_pnl']:+,.2f}
-Total Costs:               ₹{stats['costs']:,.2f}
-Net P&L:                   ₹{stats['net_pnl']:+,.2f}
-
-Starting Capital:          ₹{self.INITIAL_CAPITAL:,.2f}
-Ending Capital:            ₹{stats['capital']:,.2f}
-Return:                    {stats['return_pct']:+.2f}%
-
-Open Positions:            {stats['open_positions']}
-
-════════════════════════════════════════════════════════════════════════════════
-"""
-        
-        # Save report
-        with open(f"{self.log_dir}/daily_report.txt", 'w') as f:
-            f.write(report)
-        
-        print(report)
+    def save_trades(self, filename):
+        """Save all trades to CSV"""
+        if self.closed_trades:
+            df = pd.DataFrame(self.closed_trades)
+            df.to_csv(filename, index=False)
+            print(f"✅ Trades saved to {filename}")
 
 
-# ── FastAPI Endpoints ─────────────────────────────────────────────────────────
-@app.post("/execute")
-def execute_trade(data: dict):
-    """
-    Node.js sends {"trade_id": "..."} to approve a pending trade.
-    """
-    trade_id = data.get("trade_id")
-    
-    if trade_id not in PENDING_SIGNALS:
-        return {"status": "not_found", "message": f"No pending signal for {trade_id}"}
-    
-    # Retrieve stored context
-    context = PENDING_SIGNALS.pop(trade_id)
-    
-    # Execute via the original engine method
-    result = system.paper_engine.execute_signal(
-        context['signal'],
-        context['ltp'],
-        context['ml_score']
-    )
-    
-    # Force the trade_id to match Node's ID
-    if result:
-        result['trade_id'] = trade_id
-    
-    print(f"\n✅ Executed Trade {trade_id} via Webhook")
-    return {"status": "executed", "trade_id": trade_id}
-
-
-@app.post("/update_capital")
-def update_capital(data: dict):
-    """
-    Node.js sends {"capital": 50000} to update engine capital.
-    """
-    new_capital = data.get("capital")
-    if new_capital is not None and system:
-        system.paper_engine.capital = float(new_capital)
-        print(f"\n💰 Capital Updated: ₹{new_capital:,}")
-        return {"status": "updated", "capital": new_capital}
-    return {"status": "error", "message": "Missing capital value"}
-
-
-@app.get("/health")
-def health_check():
-    """Health check endpoint for monitoring."""
-    stats = system.paper_engine.get_daily_stats() if system else {}
-    return {
-        "status": "running",
-        "pending_signals": len(PENDING_SIGNALS),
-        "engine_stats": stats
-    }
-
-
-def main():
-    """Main entry point"""
-    global system
-    system = LivePaperTradingSystem()
-    
-    # Login
-    if not system.login():
-        print("❌ Login failed - check credentials")
-        return
-    
-    # Warmup
-    if not system.warmup():
-        print("❌ Warmup failed - cannot proceed")
-        return
-    
-    # Run trading loop in a background thread
-    t = threading.Thread(target=system.run_live, daemon=True)
-    t.start()
-    
-    print(f"\n🌐 FastAPI server starting on port {config.PYTHON_PORT}...")
-    print(f"   Swagger UI: http://localhost:{config.PYTHON_PORT}/docs")
-    print(f"   Health:     http://localhost:{config.PYTHON_PORT}/health")
-    
-    # Run FastAPI server on the main thread (blocks here)
-    uvicorn.run(app, host="0.0.0.0", port=config.PYTHON_PORT)
-
-
+# Test
 if __name__ == "__main__":
-    main()
+    from cost_calculator import CostCalculator
+    
+    print("\n" + "="*80)
+    print("TESTING PAPER TRADING ENGINE".center(80))
+    print("="*80 + "\n")
+    
+    calc = CostCalculator()
+    engine = PaperTradingEngine(initial_capital=100000, cost_calculator=calc)
+    
+    # Simulate a signal
+    signal = {
+        'action': 'BUY',
+        'price': 25000,
+        'stop': 24950,
+        'target': 25100,
+        'setup': 'test'
+    }
+    
+    result = engine.execute_signal(signal, 25000, ml_score=25)
+    print(f"\n   Trade ID: {result.get('trade_id')}")
+    
+    # Simulate target hit
+    print(f"\n📊 Simulating price movement to target...")
+    engine.update_positions(25100, datetime.now())
+    
+    stats = engine.get_daily_stats()
+    print(f"\n📊 Daily Stats:")
+    print(f"   Trades: {stats['trades_completed']}")
+    print(f"   Win Rate: {stats['win_rate']:.1f}%")
+    print(f"   Net P&L: ₹{stats['net_pnl']:+,.2f}")
+    print(f"   Return: {stats['return_pct']:+.2f}%")
+    
+    print("\n✅ Paper trading engine working!")
