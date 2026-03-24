@@ -108,17 +108,25 @@ const updateStrategySettings = async (req, res) => {
           .catch(err => console.warn("Mode sync failed:", err.message));
       }
 
-      // If profile changed, also sync to Strategy model + Python engine
-      if (profile) {
+      // If executionMode OR profile changed, sync to Strategy model + Python engine
+      if (profile || executionMode) {
         try {
+          let strategyUpdates = {
+            execution_mode: (executionMode || user.settings.executionMode || "MANUAL").toUpperCase()
+          };
+          if (profile) strategyUpdates.active_strategy = profile;
+
           await Strategy.findOneAndUpdate(
             { user: req.user._id },
-            { active_strategy: profile, execution_mode: executionMode || user.settings.executionMode },
-            { upsert: true }
+            strategyUpdates,
+            { upsert: true, runValidators: false } // bypass validation for old records
           );
-          axios.post(`${pythonBase}/set_strategy`, { strategy: profile }, { timeout: 5000 })
-            .then(() => console.log(`🔄 Pushed active strategy (${profile}) to Python`))
-            .catch(err => console.warn("Strategy sync warning:", err.message));
+
+          if (profile) {
+            axios.post(`${pythonBase}/set_strategy`, { strategy: profile }, { timeout: 5000 })
+              .then(() => console.log(`🔄 Pushed active strategy (${profile}) to Python`))
+              .catch(err => console.warn("Strategy sync warning:", err.message));
+          }
         } catch (syncErr) {
           console.warn("DB Strategy sync warning:", syncErr.message);
         }
@@ -132,6 +140,7 @@ const updateStrategySettings = async (req, res) => {
       res.status(404).json({ message: "User not found" });
     }
   } catch (error) {
+    console.error("updateStrategySettings error:", error);
     res.status(500).json({ message: error.message });
   }
 };

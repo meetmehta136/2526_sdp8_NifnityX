@@ -15,7 +15,7 @@ import newsRoutes from "./routes/newsRoutes.js";
 import { angelOneService } from "./utils/angelOneService.js";
 import { bootSyncStrategy } from "./controllers/StrategyController.js";
 import { startSignalExpiryScheduler } from "./utils/signalExpiry.js";
-import { startNewsScheduler } from "./utils/newsService.js";
+
 import { startSignalExpiryWorker } from "./workers/signalExpiryWorker.js";
 
 dotenv.config();
@@ -29,7 +29,7 @@ const server = http.createServer(app);
 // 2. Initialize Socket.io
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: process.env.CLIENT_URL || ["http://localhost:5173", "http://localhost:5174"],
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -43,7 +43,7 @@ app.use((req, res, next) => {
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: process.env.CLIENT_URL || ["http://localhost:5173", "http://localhost:5174"],
     credentials: true,
   })
 );
@@ -88,17 +88,13 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📡 Socket.io Active`);
-  
+
   // Initialize Angel One Service (Download Scrip Master)
   angelOneService.initialize();
 
   // Start Signal Expiry Worker (auto-expires pending signals after 60 seconds)
   startSignalExpiryWorker(io);
   console.log(`⏰ Signal Expiry Worker started`);
-
-  // Start News Scheduler (fetches news every 15 minutes)
-  startNewsScheduler();
-  console.log(`📰 News Scheduler started`);
 
   // Boot sync: push saved strategy to Python engine
   // Delayed slightly to let Python FastAPI finish starting
