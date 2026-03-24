@@ -6,7 +6,7 @@ import { AppSidebar } from "@/components/layout/AppSidebar";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import api, { fetchActiveStrategy, setActiveStrategy } from "@/lib/api";
-import { ArrowUpRight, ArrowDownRight, Crosshair, Activity, Zap, Shield, Loader2 } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Crosshair, Activity, Zap, Shield, Loader2, Clock } from "lucide-react";
 import { toast } from "sonner";
 
 const STRATEGY_META = {
@@ -16,9 +16,20 @@ const STRATEGY_META = {
     conservative: { label: "Conservative", icon: Shield, color: "text-emerald-400" },
 };
 
+// ── Real-time Clock Hook ──
+function useRealtimeClock() {
+    const [time, setTime] = useState(new Date());
+    useEffect(() => {
+        const id = setInterval(() => setTime(new Date()), 1000);
+        return () => clearInterval(id);
+    }, []);
+    return time;
+}
+
 export default function DashboardLayout({ user }) {
     const [price, setPrice] = useState(null);
     const [stats, setStats] = useState({ totalPnL: 0, openTrades: 0 });
+    const clock = useRealtimeClock();
 
     // Strategy state
     const [activeStrategy, setActiveStrategyState] = useState("sniper");
@@ -43,9 +54,7 @@ export default function DashboardLayout({ user }) {
                 const { data } = await fetchActiveStrategy();
                 setActiveStrategyState(data.active);
                 if (data.available?.length) setAvailableStrategies(data.available);
-            } catch (_) {
-                // Not logged in yet or endpoint not ready
-            }
+            } catch (_) { }
         };
         loadStrategy();
     }, []);
@@ -61,7 +70,7 @@ export default function DashboardLayout({ user }) {
         if (newStrategy === activeStrategy) return;
         const prev = activeStrategy;
         setStrategySwitching(true);
-        setActiveStrategyState(newStrategy); // Optimistic
+        setActiveStrategyState(newStrategy);
 
         try {
             const { data } = await setActiveStrategy(newStrategy);
@@ -71,7 +80,7 @@ export default function DashboardLayout({ user }) {
                 toast.success(`Strategy switched to ${newStrategy.toUpperCase()}`);
             }
         } catch (err) {
-            setActiveStrategyState(prev); // Rollback
+            setActiveStrategyState(prev);
             const msg = err.response?.data?.message || "Failed to change strategy";
             toast.error(msg);
         } finally {
@@ -79,9 +88,12 @@ export default function DashboardLayout({ user }) {
         }
     };
 
-    const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
     const isUp = price?.change >= 0;
     const isMarketOpen = price?.marketState === 'REGULAR';
+    const pnl = stats?.totalPnL || 0;
+
+    // Format clock as IST
+    const clockStr = clock.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
 
     return (
@@ -105,7 +117,16 @@ export default function DashboardLayout({ user }) {
                         </div>
 
                         {/* Session HUD (Right Side) */}
-                        <div className="ml-auto flex items-center gap-4 md:gap-6 text-xs font-mono">
+                        <div className="ml-auto flex items-center gap-3 md:gap-4 text-xs font-mono">
+
+                            {/* Real-time Clock */}
+                            <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-zinc-500 font-mono">
+                                <Clock size={10} className="text-zinc-600" />
+                                <span className="tabular-nums">{clockStr}</span>
+                                <span className="text-zinc-700">IST</span>
+                            </div>
+
+                            <div className="hidden lg:block h-4 w-[1px] bg-zinc-800" />
 
                             {/* Strategy Selector */}
                             <div className="hidden md:flex items-center">
@@ -136,7 +157,7 @@ export default function DashboardLayout({ user }) {
 
                             <div className="hidden md:block h-4 w-[1px] bg-zinc-800" />
 
-                            {/* 1. Market Status */}
+                            {/* Market Status */}
                             {isMarketOpen ? (
                                 <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20">
                                     <div className="relative flex h-2 w-2">
@@ -154,7 +175,7 @@ export default function DashboardLayout({ user }) {
 
                             <div className="hidden md:block h-4 w-[1px] bg-zinc-800" />
 
-                            {/* 2. NIFTY 50 Ticker — live from free API */}
+                            {/* NIFTY 50 Ticker */}
                             <div className="flex items-center gap-4">
                                 <div className="flex flex-col items-end leading-none gap-0.5">
                                     <span className="text-[9px] text-zinc-500 font-bold tracking-wider uppercase">NIFTY 50</span>
@@ -173,7 +194,19 @@ export default function DashboardLayout({ user }) {
                                 </div>
                             </div>
 
-                            {/* 3. P&L Badge Removed */}
+                            <div className="hidden lg:block h-4 w-[1px] bg-zinc-800" />
+
+                            {/* Session P&L Badge */}
+                            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md border"
+                                style={{
+                                    background: pnl >= 0 ? 'rgba(16, 185, 129, 0.06)' : 'rgba(239, 68, 68, 0.06)',
+                                    borderColor: pnl >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                }}>
+                                <span className="text-[9px] text-zinc-500 font-semibold uppercase">P&L</span>
+                                <span className={`text-[11px] font-bold font-mono tabular-nums ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                    {pnl >= 0 ? "+" : ""}₹{Math.abs(pnl).toLocaleString('en-IN')}
+                                </span>
+                            </div>
 
                         </div>
                     </header>
