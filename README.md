@@ -1,4 +1,4 @@
-[<div align="center">
+<div align="center">
 
 # 🏛️ NifnityX
 
@@ -300,11 +300,11 @@ NIFNITYX/
 
 <div align="center">
 
-| <img src="https://github.com/meetmehta136.png" width="80" style="border-radius: 50%"/> | <img src="https://github.com/dhruval30.png" width="80" style="border-radius: 50%"/> |
+| <img src="https://github.com/meetmehta136.png" width="80" style="border-radius: 50%"/> | <img src="https://github.com/dhruvalpatel-dev.png" width="80" style="border-radius: 50%"/> |
 |:---:|:---:|
 | **Meet Mehta** | **Dhruval Patel** |
 | Quant Engine · ML/NLP · Strategy Logic | Frontend Architecture · WebSocket · UI/UX |
-| [![GitHub](https://img.shields.io/badge/-meetmehta136-181717?style=flat-square&logo=github)](https://github.com/meetmehta136) | [![GitHub](https://img.shields.io/badge/-dhruval30-181717?style=flat-square&logo=github)](https://github.com/dhruval30) |
+| [![GitHub](https://img.shields.io/badge/-meetmehta136-181717?style=flat-square&logo=github)](https://github.com/meetmehta136) | [![GitHub](https://img.shields.io/badge/-dhruvalpatel--dev-181717?style=flat-square&logo=github)](https://github.com/dhruvalpatel-dev) |
 
 </div>
 
@@ -343,4 +343,3 @@ All intellectual property rights remain with the contributors.
 <sub>Built with ❤️ by Meet Mehta & Dhruval Patel · 2025–2026</sub>
 
 </div>
-](https://github.com/meetmehta136/2526_sdp8_NifnityX)
