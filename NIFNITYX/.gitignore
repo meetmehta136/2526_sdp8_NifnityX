@@ -1,0 +1,22 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node.js
+node_modules/
+dist/
+.DS_Store
+
+# Logs
+simulation_logs/
+*.log
+
+# Environment
+.env
+.env.local
+
+# WebApp specific
+nifnityx_webapp/backend/node_modules/
+nifnityx_webapp/frontend/node_modules/
+nifnityx_webapp/frontend/dist/
