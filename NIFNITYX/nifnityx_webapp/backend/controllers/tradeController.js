@@ -17,7 +17,7 @@ const SIGNAL_EXPIRY_SECONDS = parseInt(process.env.SIGNAL_EXPIRY_SECONDS) || 60;
 // ── HELPER: Send Webhook to Python ──
 const sendExecutionCommand = async (trade) => {
   const pythonUrl = process.env.PYTHON_EXECUTION_URL || "http://localhost:8000";
-  
+
   // Extract base URL and construct /execute endpoint
   let pythonBase;
   try {
@@ -88,7 +88,7 @@ export const receiveSignal = async (req, res) => {
       let slippage = 0;
       const entryPrice = signalData.entry.price;
       let livePrice = entryPrice;
-      
+
       if (tradingMode === "live") {
         try {
           const summary = await getPriceSummary(signalData.symbol);
@@ -99,7 +99,7 @@ export const receiveSignal = async (req, res) => {
         } catch (err) {
           console.warn("⚠️ Slippage check failed (live price unavailable), assuming 0");
         }
-        
+
         const maxSlippage = signalData.constraints?.slippage_per || 0.5;
 
         if (slippage > maxSlippage) {
@@ -140,6 +140,7 @@ export const receiveSignal = async (req, res) => {
 
       console.log("⚡ [Auto-Pilot] Executed " + signalData.trade_id + " in " + tradingMode + " mode");
       req.io.emit("new_signal", openTrade); // UI adds as OPEN card directly
+      req.io.emit("stats_update", { mode: tradingMode }); // Trigger KPI refresh
 
       return res.status(200).json({ success: true, message: "Auto-Executed", trade_id: signalData.trade_id, status: "OPEN" });
     }
@@ -207,7 +208,7 @@ export const approveTrade = async (req, res) => {
     // Get trading mode from user settings
     const user = await User.findById(req.user._id).select("settings");
     const tradingMode = user?.settings?.tradingMode || "paper";
-    
+
     if (!force && tradingMode === "live") {
       try {
         const summary = await getPriceSummary(trade.symbol);
@@ -267,6 +268,7 @@ export const approveTrade = async (req, res) => {
 
     // ── BROADCAST ──
     req.io.emit("trade_update", trade);
+    req.io.emit("stats_update", { mode: tradingMode });
 
     res.status(200).json(trade);
 
@@ -314,19 +316,19 @@ export const exitTrade = async (req, res) => {
     // ── UPDATE DB DIRECTLY FROM PYTHON RESPONSE ──
     // Python /exit returns: { status:"closed", pnl, gross_pnl, total_costs, won, exit_price, exit_time, exit_reason }
     if (pyData && (pyData.status === "closed" || pyData.status === "already_closed")) {
-      const won       = Boolean(pyData.won);
-      const net_pnl   = Number(pyData.pnl   ?? 0);
+      const won = Boolean(pyData.won);
+      const net_pnl = Number(pyData.pnl ?? 0);
       const gross_pnl = Number(pyData.gross_pnl ?? net_pnl);
-      const costs     = Number(pyData.total_costs ?? 0);
-      const exitPrice = Number(pyData.exit_price  ?? trade.entry?.price ?? 0);
-      const exitTime  = new Date(pyData.exit_time ?? Date.now());
+      const costs = Number(pyData.total_costs ?? 0);
+      const exitPrice = Number(pyData.exit_price ?? trade.entry?.price ?? 0);
+      const exitTime = new Date(pyData.exit_time ?? Date.now());
 
-      trade.status      = won ? "WIN" : "LOSS";
-      trade.pnl         = net_pnl;
-      trade.gross_pnl   = gross_pnl;
+      trade.status = won ? "WIN" : "LOSS";
+      trade.pnl = net_pnl;
+      trade.gross_pnl = gross_pnl;
       trade.total_costs = costs;
-      trade.exit        = { price: exitPrice, time: exitTime, reason: "MANUAL_EXIT" };
-      trade.exit_time   = exitTime;
+      trade.exit = { price: exitPrice, time: exitTime, reason: "MANUAL_EXIT" };
+      trade.exit_time = exitTime;
       trade.logs.push({
         message: `Manual exit: ${won ? "WIN" : "LOSS"} ₹${net_pnl >= 0 ? "+" : ""}${net_pnl.toFixed(2)}`,
         time: new Date(),
@@ -335,6 +337,7 @@ export const exitTrade = async (req, res) => {
 
       console.log(`📝 [Exit] ${trade.trade_id} → ${trade.status} | P&L: ₹${net_pnl}`);
       req.io.emit("trade_update", trade);
+      req.io.emit("stats_update", { mode: trade.execution_mode?.toLowerCase() });
 
       return res.status(200).json({ success: true, trade });
     }
@@ -491,17 +494,23 @@ export const getTrades = async (req, res) => {
 export const getTradeById = async (req, res) => {
   try {
     const { id } = req.params;
-    
-    // Try to find by MongoDB _id first, then by trade_id
-    let trade = await Trade.findById(id);
+
+    // Try by trade_id first (Python always uses trade_id like SIM-xxx)
+    let trade = await Trade.findOne({ trade_id: id });
+
+    // Fallback to MongoDB _id (frontend uses _id)
     if (!trade) {
-      trade = await Trade.findOne({ trade_id: id });
+      try {
+        trade = await Trade.findById(id);
+      } catch (_) {
+        // id is not a valid ObjectId — that's fine
+      }
     }
-    
+
     if (!trade) {
       return res.status(404).json({ message: "Trade not found" });
     }
-    
+
     res.json(trade);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -649,61 +658,107 @@ export const getAnalytics = async (req, res) => {
     const equityCurve = [];
     const dailyPnL = {};
     const mlScatterData = [];
-    const mlTierStats = { high: { wins: 0, total: 0 }, medium: { wins: 0, total: 0 }, low: { wins: 0, total: 0 } };
-    const strategySet = new Set();
+    const timeOfDayPnL = {}; 
+    const drawdownCurve = [];
+    
+    // Streaks & Sequence tracking
+    let currentWinStreak = 0, maxWinStreak = 0;
+    let currentLossStreak = 0, maxLossStreak = 0;
+    let peakCapital = initialCapital;
+    let maxDrawdown = 0;
 
     trades.forEach(trade => {
       const pnl = trade.pnl || 0;
       totalPnL += pnl;
       currentCapital += pnl;
 
-      // Win/Loss
-      if (trade.status === "WIN") { wins++; totalWinVal += pnl; }
-      else if (trade.status === "LOSS") { losses++; totalLossVal += Math.abs(pnl); }
+      // Win/Loss Streaks
+      if (trade.status === "WIN") {
+        wins++;
+        totalWinVal += pnl;
+        currentWinStreak++;
+        currentLossStreak = 0;
+        if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
+      } else if (trade.status === "LOSS") {
+        losses++;
+        totalLossVal += Math.abs(pnl);
+        currentLossStreak++;
+        currentWinStreak = 0;
+        if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
+      }
 
-      // Equity Curve (Use simulated exit time instead of MongoDB insertion time)
+      // Drawdown calculation
+      if (currentCapital > peakCapital) peakCapital = currentCapital;
+      const dd = currentCapital - peakCapital;
+      if (dd < maxDrawdown) maxDrawdown = dd;
+      
       const exitTime = trade.exit?.time || trade.entry?.time || trade.createdAt;
       const dateStr = new Date(exitTime).toLocaleDateString('en-CA');
-      equityCurve.push({ date: dateStr, cumulative_pnl: totalPnL, pnl });
+      
+      equityCurve.push({ date: dateStr, cumulative_pnl: totalPnL, capital: currentCapital });
+      drawdownCurve.push({ date: dateStr, drawdown: dd });
 
-      // Daily Aggregation
       dailyPnL[dateStr] = (dailyPnL[dateStr] || 0) + pnl;
-
-      // Friction Aggregation
       totalGrossPnl += (trade.gross_pnl || 0);
       totalCosts += (trade.total_costs || 0);
       const cb = trade.cost_breakdown || {};
       brokerageSum += (cb.brokerage || 0);
       govTaxSum += (cb.stt || 0) + (cb.gst || 0) + (cb.stamp_duty || 0) + (cb.exchange_txn || 0) + (cb.sebi || 0);
 
-      // ML Scatter Data
       const mlScore = trade.confidence_score?.breakdown?.ml_model || 0;
       if (mlScore > 0) {
         mlScatterData.push({ ml_score: mlScore, pnl: pnl, status: trade.status });
       }
 
-      // ML Tier Stats
-      if (mlScore > 0) {
-        const tier = mlScore > 22 ? 'high' : mlScore >= 15 ? 'medium' : 'low';
-        mlTierStats[tier].total++;
-        if (trade.status === "WIN") mlTierStats[tier].wins++;
+      const entryTime = trade.entry?.time || trade.createdAt;
+      if (entryTime) {
+        let hour = new Date(entryTime).getHours();
+        const hourLabel = hour > 12 ? `${hour - 12} PM` : `${hour} AM`;
+        timeOfDayPnL[hourLabel] = (timeOfDayPnL[hourLabel] || 0) + pnl;
       }
-
-      // Strategy Collection
-      strategySet.add(trade.strategy_name || "sniper");
     });
 
-    // Finalize KPIs
+    // ── ADVANCED RISK CALCULATIONS ──
     const totalTrades = wins + losses;
     const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : 0;
     const profitFactor = totalLossVal > 0 ? (totalWinVal / totalLossVal).toFixed(2) : (totalWinVal > 0 ? 100 : 0);
+    
+    // Average Win vs Average Loss
+    const avgWin = wins > 0 ? totalWinVal / wins : 0;
+    const avgLoss = losses > 0 ? totalLossVal / losses : 0;
+    const riskRewardRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : 0;
 
-    // Daily PnL Array
+    // Sharpe Ratio (Simplified Annualized)
+    // Assume 252 trading days. We calculate daily returns first.
+    const dailyPnLValues = Object.values(dailyPnL);
+    let sharpeRatio = 0;
+    let sortinoRatio = 0;
+    
+    if (dailyPnLValues.length > 2) {
+      const mean = dailyPnLValues.reduce((a, b) => a + b, 0) / dailyPnLValues.length;
+      const variance = dailyPnLValues.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / dailyPnLValues.length;
+      const stdDev = Math.sqrt(variance);
+      
+      // Sharpe = Mean / StdDev * sqrt(252)
+      if (stdDev > 0) {
+        sharpeRatio = (mean / stdDev) * Math.sqrt(252);
+      }
+      
+      // Sortino = Mean / DownsideDev * sqrt(252)
+      const negativeReturns = dailyPnLValues.filter(v => v < 0);
+      if (negativeReturns.length > 0) {
+        const downsideVariance = negativeReturns.reduce((a, b) => a + Math.pow(b, 2), 0) / dailyPnLValues.length;
+        const downsideDev = Math.sqrt(downsideVariance);
+        if (downsideDev > 0) {
+          sortinoRatio = (mean / downsideDev) * Math.sqrt(252);
+        }
+      }
+    }
+
     const dailyPnLArray = Object.keys(dailyPnL).map(date => ({
       date, pnl: Number(dailyPnL[date].toFixed(2))
     })).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Friction Donut Data
     const netProfit = Math.max(totalPnL, 0);
     const frictionDonut = [
       { name: "Net Profit", value: Number(netProfit.toFixed(2)), fill: "hsl(142, 76%, 36%)" },
@@ -711,12 +766,14 @@ export const getAnalytics = async (req, res) => {
       { name: "Govt Taxes", value: Number(govTaxSum.toFixed(2)), fill: "hsl(0, 84%, 60%)" },
     ];
 
-    // ML Tier Win Rates
-    const mlTierWinRates = [
-      { tier: "High (>22)", win_rate: mlTierStats.high.total > 0 ? Math.round((mlTierStats.high.wins / mlTierStats.high.total) * 100) : 0, total: mlTierStats.high.total },
-      { tier: "Medium (15-22)", win_rate: mlTierStats.medium.total > 0 ? Math.round((mlTierStats.medium.wins / mlTierStats.medium.total) * 100) : 0, total: mlTierStats.medium.total },
-      { tier: "Low (<15)", win_rate: mlTierStats.low.total > 0 ? Math.round((mlTierStats.low.wins / mlTierStats.low.total) * 100) : 0, total: mlTierStats.low.total },
-    ];
+    const timeOfDayArray = [];
+    for (let i = 9; i <= 15; i++) {
+      const hLabel = i > 12 ? `${i - 12} PM` : `${i} AM`;
+      timeOfDayArray.push({
+        hour: hLabel,
+        pnl: timeOfDayPnL[hLabel] ? Number(timeOfDayPnL[hLabel].toFixed(2)) : 0
+      });
+    }
 
     res.json({
       kpis: {
@@ -726,13 +783,23 @@ export const getAnalytics = async (req, res) => {
         total_trades: totalTrades,
         total_gross_pnl: totalGrossPnl,
         total_costs: totalCosts,
+        // Advanced
+        sharpe_ratio: Number(sharpeRatio.toFixed(2)),
+        sortino_ratio: Number(sortinoRatio.toFixed(2)),
+        max_drawdown: Number(maxDrawdown.toFixed(2)),
+        max_drawdown_per: Number(((maxDrawdown / initialCapital) * 100).toFixed(2)),
+        avg_win: Number(avgWin.toFixed(2)),
+        avg_loss: Number(avgLoss.toFixed(2)),
+        risk_reward: Number(riskRewardRatio),
+        max_win_streak: maxWinStreak,
+        max_loss_streak: maxLossStreak,
       },
       equity_curve: equityCurve,
+      drawdown_curve: drawdownCurve,
       daily_pnl: dailyPnLArray,
       friction_donut: frictionDonut,
       ml_scatter: mlScatterData,
-      ml_tier_win_rates: mlTierWinRates,
-      strategies: Array.from(strategySet),
+      time_of_day_pnl: timeOfDayArray,
     });
 
   } catch (error) {

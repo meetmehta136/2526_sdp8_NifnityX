@@ -18,6 +18,7 @@ const router = express.Router();
 // ── Public: Python Engine ──
 router.post("/signal", receiveSignal);
 router.post("/update", updateTradeStatus); // Protected via x-python-secret header
+router.get("/trades/:id", getTradeById);   // Public: Python polls trade status by trade_id
 
 // ── Protected: Frontend (User) ──
 router.get("/stats", protect, getDashboardStats);
