@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
     TrendingUp, TrendingDown, Activity, Target, RefreshCcw,
     Brain, FlaskConical, DollarSign, BarChart3,
-    Gauge, ArrowDownRight
+    Gauge, ArrowDownRight, Clock3
 } from "lucide-react";
 import {
     Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis,
@@ -55,22 +55,25 @@ export default function Analytics() {
 
     useEffect(() => {
         loadData();
+
+        // ── WebSocket Live Updates ──
+        const onStatsUpdate = () => {
+            console.log("🔄 [Socket] Stats update received, refreshing Analytics...");
+            loadData();
+        };
+
+        import("@/lib/socket").then(({ socket }) => {
+            socket.on("stats_update", onStatsUpdate);
+        });
+
+        return () => {
+            import("@/lib/socket").then(({ socket }) => {
+                socket.off("stats_update", onStatsUpdate);
+            });
+        };
     }, [loadData]);
 
     // ── DERIVED DATA (useMemo) ──
-
-    const maxDrawdown = useMemo(() => {
-        if (!data?.equity_curve?.length) return 0;
-        let peak = 0;
-        let mdd = 0;
-        data.equity_curve.forEach((point) => {
-            const cum = point.cumulative_pnl;
-            if (cum > peak) peak = cum;
-            const dd = cum - peak;
-            if (dd < mdd) mdd = dd;
-        });
-        return mdd;
-    }, [data?.equity_curve]);
 
     const kpis = useMemo(() => {
         if (!data?.kpis) return null;
@@ -79,15 +82,24 @@ export default function Analytics() {
             winRate: data.kpis.win_rate || 0,
             profitFactor: data.kpis.profit_factor || 0,
             totalTrades: data.kpis.total_trades || 0,
-            maxDrawdown,
+            maxDrawdown: data.kpis.max_drawdown || 0,
+            maxDrawdownPer: data.kpis.max_drawdown_per || 0,
+            sharpe: data.kpis.sharpe_ratio || 0,
+            sortino: data.kpis.sortino_ratio || 0,
+            riskReward: data.kpis.risk_reward || 0,
+            avgWin: data.kpis.avg_win || 0,
+            avgLoss: data.kpis.avg_loss || 0,
+            maxWinStreak: data.kpis.max_win_streak || 0,
+            maxLossStreak: data.kpis.max_loss_streak || 0,
         };
-    }, [data?.kpis, maxDrawdown]);
+    }, [data?.kpis]);
 
     const equityCurveData = useMemo(() => data?.equity_curve || [], [data?.equity_curve]);
+    const drawdownCurveData = useMemo(() => data?.drawdown_curve || [], [data?.drawdown_curve]);
     const dailyPnlData = useMemo(() => data?.daily_pnl || [], [data?.daily_pnl]);
     const frictionDonutData = useMemo(() => data?.friction_donut || [], [data?.friction_donut]);
     const mlScatterData = useMemo(() => data?.ml_scatter || [], [data?.ml_scatter]);
-    const mlTierData = useMemo(() => data?.ml_tier_win_rates || [], [data?.ml_tier_win_rates]);
+    const timeOfDayData = useMemo(() => data?.time_of_day_pnl || [], [data?.time_of_day_pnl]);
     const strategies = useMemo(() => ["sniper", "balanced", "aggressive", "conservative"], []);
 
     // ── RENDER ──
@@ -99,7 +111,7 @@ export default function Analytics() {
     return (
         <div className="flex flex-col max-w-[1600px] mx-auto p-1 gap-4">
 
-            {/* Header — matches TradeHistory */}
+            {/* Header */}
             <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-xl font-bold text-zinc-100 tracking-tight flex items-center gap-3">
@@ -118,7 +130,7 @@ export default function Analytics() {
                 </Button>
             </div>
 
-            {/* Filters Toolbar — matches TradeHistory */}
+            {/* Filters Toolbar */}
             <div className="flex-none flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-zinc-900/30 p-2 rounded-xl border border-zinc-800/50 backdrop-blur-sm">
                 <Select value={strategy} onValueChange={setStrategy}>
                     <SelectTrigger className="w-full sm:w-[180px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
@@ -158,8 +170,8 @@ export default function Analytics() {
                 <EmptyState />
             ) : (
                 <>
-                    {/* ═══ ZONE 1: KPI CARDS ═══ */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {/* ═══ ZONE 1: PRIMARY KPI CARDS ═══ */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
                         <StatsCard
                             title="Net P&L"
                             value={`₹${kpis.totalPnl.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
@@ -175,42 +187,37 @@ export default function Analytics() {
                             sub={kpis.winRate >= 55 ? "Strong edge" : "Needs improvement"}
                         />
                         <StatsCard
-                            title="Profit Factor"
-                            value={kpis.profitFactor}
+                            title="Sharpe Ratio"
+                            value={kpis.sharpe}
                             icon={Gauge}
                             valueClass="text-purple-400"
-                            sub={kpis.profitFactor > 1.5 ? "Healthy" : kpis.profitFactor > 1 ? "Marginal" : "Negative"}
+                            sub={kpis.sharpe > 1.5 ? "Exceptional" : kpis.sharpe > 0 ? "Positive" : "Risky"}
                         />
                         <StatsCard
                             title="Max Drawdown"
-                            value={`₹${Math.abs(kpis.maxDrawdown).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+                            value={`${kpis.maxDrawdownPer}%`}
                             icon={ArrowDownRight}
                             valueClass="text-orange-400"
-                            sub="Peak to trough"
+                            sub={`₹${Math.abs(kpis.maxDrawdown).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
                         />
                     </div>
 
                     {/* ═══ ZONE 2: PERFORMANCE TIMELINES ═══ */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-                        {/* Cumulative PnL Curve */}
-                        <Card className="xl:col-span-7 bg-zinc-950 border-zinc-800 shadow-lg">
+                        <Card className="xl:col-span-12 bg-zinc-950 border-zinc-800 shadow-lg overflow-hidden">
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                    <TrendingUp className="w-4 h-4 text-emerald-500" /> Cumulative P&L
+                                    <TrendingUp className="w-4 h-4 text-emerald-500" /> Equity Curve
                                 </CardTitle>
-                                <CardDescription className="text-xs text-zinc-500">Account growth trajectory over time</CardDescription>
+                                <CardDescription className="text-xs text-zinc-500">Account growth trajectory with capital visualization</CardDescription>
                             </CardHeader>
-                            <CardContent className="h-[320px]">
-                                <ChartContainer config={{ cumulative_pnl: { label: "Cumulative P&L", color: "hsl(142, 76%, 36%)" } }} className="h-full w-full">
+                            <CardContent className="h-[360px] pt-4">
+                                <ChartContainer config={{ capital: { label: "Equity", color: "hsl(142, 76%, 45%)" } }} className="h-full w-full">
                                     <AreaChart data={equityCurveData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                         <defs>
-                                            <linearGradient id="fillPnlPos" x1="0" y1="0" x2="0" y2="1">
+                                            <linearGradient id="fillPnlMain" x1="0" y1="0" x2="0" y2="1">
                                                 <stop offset="5%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0.8} />
                                                 <stop offset="95%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0.05} />
-                                            </linearGradient>
-                                            <linearGradient id="fillPnlNeg" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0.8} />
-                                                <stop offset="95%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0.05} />
                                             </linearGradient>
                                         </defs>
                                         <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
@@ -218,35 +225,101 @@ export default function Analytics() {
                                             tick={{ fill: '#71717a', fontSize: 10 }}
                                             tickFormatter={(v) => new Date(v).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                                         />
+                                        <YAxis tickLine={false} axisLine={false} tick={{ fill: '#71717a', fontSize: 10 }} 
+                                            tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
                                         <ChartTooltip content={<ChartTooltipContent />} />
                                         <Area
-                                            type="monotone" dataKey="cumulative_pnl" strokeWidth={2}
-                                            stroke={kpis.totalPnl >= 0 ? "hsl(142, 76%, 36%)" : "hsl(0, 84%, 60%)"}
-                                            fill={kpis.totalPnl >= 0 ? "url(#fillPnlPos)" : "url(#fillPnlNeg)"}
+                                            type="monotone" dataKey="capital" strokeWidth={3}
+                                            stroke="hsl(142, 76%, 45%)"
+                                            fill="url(#fillPnlMain)"
                                             fillOpacity={0.4}
+                                            animationDuration={1500}
+                                        />
+                                    </AreaChart>
+                                </ChartContainer>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* ═══ ZONE 3: RISK & RECOVERY ═══ */}
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+                         <Card className="xl:col-span-8 bg-zinc-950 border-zinc-800 shadow-lg">
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                                    <ArrowDownRight className="w-4 h-4 text-red-500" /> Drawdown Analysis
+                                </CardTitle>
+                                <CardDescription className="text-xs text-zinc-500">Capital degradation from peak levels</CardDescription>
+                            </CardHeader>
+                            <CardContent className="h-[280px]">
+                                <ChartContainer config={{ drawdown: { label: "Drawdown", color: "hsl(0, 84%, 60%)" } }} className="h-full w-full">
+                                    <AreaChart data={drawdownCurveData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="fillDD" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0.3} />
+                                                <stop offset="95%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0.01} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                                        <XAxis dataKey="date" hide />
+                                        <ChartTooltip content={<ChartTooltipContent />} />
+                                        <Area
+                                            type="step" dataKey="drawdown" strokeWidth={1.5}
+                                            stroke="hsl(0, 84%, 60%)"
+                                            fill="url(#fillDD)"
                                         />
                                     </AreaChart>
                                 </ChartContainer>
                             </CardContent>
                         </Card>
 
-                        {/* Daily PnL Bar Chart */}
-                        <Card className="xl:col-span-5 bg-zinc-950 border-zinc-800 shadow-lg">
+                        <div className="xl:col-span-4 grid grid-cols-2 gap-3">
+                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4">
+                                <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">R:R Ratio</p>
+                                <p className="text-lg font-mono font-bold text-zinc-100 mt-1">{kpis.riskReward}</p>
+                             </Card>
+                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4">
+                                <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Sortino</p>
+                                <p className="text-lg font-mono font-bold text-zinc-100 mt-1">{kpis.sortino}</p>
+                             </Card>
+                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4">
+                                <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Win Streak</p>
+                                <p className="text-lg font-mono font-bold text-emerald-400 mt-1">{kpis.maxWinStreak}</p>
+                             </Card>
+                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4">
+                                <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Loss Streak</p>
+                                <p className="text-lg font-mono font-bold text-red-400 mt-1">{kpis.maxLossStreak}</p>
+                             </Card>
+                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4 col-span-2">
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Expectancy</p>
+                                        <p className="text-lg font-mono font-bold text-zinc-100 mt-0.5">
+                                            ₹{((kpis.avgWin * (kpis.winRate/100)) - (kpis.avgLoss * (1 - kpis.winRate/100))).toFixed(0)}
+                                        </p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[9px] text-zinc-500">Avg Win: <span className="text-emerald-500">₹{kpis.avgWin.toFixed(0)}</span></p>
+                                        <p className="text-[9px] text-zinc-500">Avg Loss: <span className="text-red-500">₹{kpis.avgLoss.toFixed(0)}</span></p>
+                                    </div>
+                                </div>
+                             </Card>
+                        </div>
+                    </div>
+
+                    {/* ═══ ZONE 4: DISTRIBUTION & ANALYSIS ═══ */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                         <Card className="bg-zinc-950 border-zinc-800 shadow-lg">
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                    <BarChart3 className="w-4 h-4 text-blue-500" /> Daily P&L
+                                    <BarChart3 className="w-4 h-4 text-blue-500" /> Daily Distribution
                                 </CardTitle>
-                                <CardDescription className="text-xs text-zinc-500">Profit/loss distribution per day</CardDescription>
                             </CardHeader>
-                            <CardContent className="h-[320px]">
+                            <CardContent className="h-[240px]">
                                 <ChartContainer config={{}} className="h-full w-full">
-                                    <BarChart data={dailyPnlData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                    <BarChart data={dailyPnlData}>
                                         <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                                        <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32}
-                                            tick={{ fill: '#71717a', fontSize: 10 }}
-                                            tickFormatter={(v) => new Date(v).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                                        />
-                                        <ChartTooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} content={<ChartTooltipContent />} />
+                                        <XAxis dataKey="date" hide />
+                                        <ChartTooltip content={<ChartTooltipContent />} />
                                         <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
                                             {dailyPnlData.map((entry, index) => (
                                                 <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? "hsl(142, 76%, 36%)" : "hsl(0, 84%, 60%)"} />
@@ -256,29 +329,23 @@ export default function Analytics() {
                                 </ChartContainer>
                             </CardContent>
                         </Card>
-                    </div>
 
-                    {/* ═══ ZONE 3 + ZONE 4 ═══ */}
-                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-
-                        {/* Zone 3: Friction Analysis — Gross vs Net Donut */}
                         <Card className="bg-zinc-950 border-zinc-800 shadow-lg flex flex-col">
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                    <DollarSign className="w-4 h-4 text-amber-500" /> Friction Analysis
+                                    <DollarSign className="w-4 h-4 text-amber-500" /> Friction Cost
                                 </CardTitle>
-                                <CardDescription className="text-xs text-zinc-500">Gross vs net breakdown</CardDescription>
                             </CardHeader>
                             <CardContent className="flex-1 pb-0">
-                                <ChartContainer config={{}} className="mx-auto aspect-square max-h-[220px]">
+                                <ChartContainer config={{}} className="mx-auto aspect-square max-h-[180px]">
                                     <PieChart>
                                         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                                         <Pie
                                             data={frictionDonutData}
                                             dataKey="value"
                                             nameKey="name"
-                                            innerRadius={55}
-                                            outerRadius={85}
+                                            innerRadius={45}
+                                            outerRadius={65}
                                             strokeWidth={5}
                                         >
                                             {frictionDonutData.map((entry, i) => (
@@ -287,43 +354,28 @@ export default function Analytics() {
                                         </Pie>
                                     </PieChart>
                                 </ChartContainer>
+                                <div className="p-3 pt-0 flex flex-wrap justify-center gap-3 text-[10px] text-zinc-400">
+                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500" /> Net</div>
+                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-amber-500" /> Brokerage</div>
+                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-red-500" /> Taxes</div>
+                                </div>
                             </CardContent>
-                            <div className="p-4 pt-2 flex justify-center gap-4 text-[11px] text-zinc-400">
-                                <div className="flex items-center gap-1.5">
-                                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "hsl(142, 76%, 36%)" }} /> Net Profit
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "hsl(38, 92%, 50%)" }} /> Brokerage
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "hsl(0, 84%, 60%)" }} /> Govt Taxes
-                                </div>
-                            </div>
                         </Card>
 
-                        {/* Zone 4a: ML Accuracy Scatter Plot */}
                         <Card className="bg-zinc-950 border-zinc-800 shadow-lg flex flex-col">
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
                                     <Brain className="w-4 h-4 text-violet-500" /> ML Accuracy
                                 </CardTitle>
-                                <CardDescription className="text-xs text-zinc-500">ML score vs actual P&L</CardDescription>
                             </CardHeader>
-                            <CardContent className="flex-1 min-h-[280px]">
+                            <CardContent className="flex-1 min-h-[240px]">
                                 {mlScatterData.length > 0 ? (
-                                    <ChartContainer config={{}} className="h-full w-full max-h-[280px]">
+                                    <ChartContainer config={{}} className="h-full w-full max-h-[240px]">
                                         <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                             <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                                            <XAxis type="number" dataKey="ml_score" name="ML Score" domain={[0, 35]}
-                                                tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} axisLine={false}
-                                            />
-                                            <YAxis type="number" dataKey="pnl" name="Net P&L"
-                                                tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} axisLine={false}
-                                                tickFormatter={(v) => `₹${v}`}
-                                            />
-                                            <ZAxis range={[40, 120]} />
+                                            <XAxis type="number" dataKey="ml_score" hide />
+                                            <YAxis type="number" dataKey="pnl" hide />
                                             <Tooltip
-                                                cursor={{ strokeDasharray: '3 3' }}
                                                 content={({ payload }) => {
                                                     if (!payload?.length) return null;
                                                     const d = payload[0].payload;
@@ -353,63 +405,6 @@ export default function Analytics() {
                                 )}
                             </CardContent>
                         </Card>
-
-                        {/* Zone 4b: Win Rate by ML Tier */}
-                        <Card className="bg-zinc-950 border-zinc-800 shadow-lg flex flex-col">
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                    <FlaskConical className="w-4 h-4 text-cyan-500" /> ML Tier Win Rate
-                                </CardTitle>
-                                <CardDescription className="text-xs text-zinc-500">Performance by signal quality</CardDescription>
-                            </CardHeader>
-                            <CardContent className="flex-1 min-h-[280px]">
-                                {mlTierData.some(t => t.total > 0) ? (
-                                    <ChartContainer config={{}} className="h-full w-full max-h-[280px]">
-                                        <BarChart data={mlTierData} layout="vertical" margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                                            <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                                            <XAxis type="number" domain={[0, 100]} tickLine={false} axisLine={false}
-                                                tick={{ fill: '#71717a', fontSize: 10 }}
-                                                tickFormatter={(v) => `${v}%`}
-                                            />
-                                            <YAxis type="category" dataKey="tier" tickLine={false} axisLine={false}
-                                                tick={{ fill: '#a1a1aa', fontSize: 11 }} width={100}
-                                            />
-                                            <ChartTooltip
-                                                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                                                content={({ payload }) => {
-                                                    if (!payload?.length) return null;
-                                                    const d = payload[0].payload;
-                                                    return (
-                                                        <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                                                            <p className="text-zinc-400">{d.tier}</p>
-                                                            <p className="text-white">Win Rate: {d.win_rate}%</p>
-                                                            <p className="text-zinc-500">{d.total} trades</p>
-                                                        </div>
-                                                    );
-                                                }}
-                                            />
-                                            <Bar dataKey="win_rate" radius={[0, 4, 4, 0]}>
-                                                {mlTierData.map((entry, index) => (
-                                                    <Cell
-                                                        key={`tier-${index}`}
-                                                        fill={
-                                                            entry.tier.includes("High") ? "hsl(142, 76%, 36%)" :
-                                                                entry.tier.includes("Medium") ? "hsl(38, 92%, 50%)" :
-                                                                    "hsl(0, 84%, 60%)"
-                                                        }
-                                                    />
-                                                ))}
-                                            </Bar>
-                                        </BarChart>
-                                    </ChartContainer>
-                                ) : (
-                                    <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
-                                        No ML tier data available yet
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-
                     </div>
                 </>
             )}
@@ -421,16 +416,16 @@ export default function Analytics() {
 
 function StatsCard({ title, value, icon: Icon, valueClass, sub }) {
     return (
-        <Card className="bg-zinc-950 border-zinc-800 shadow-lg">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-zinc-400">{title}</CardTitle>
+        <Card className="bg-zinc-950 border-zinc-800 shadow-lg py-0">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0  pt-3 px-4">
+                <CardTitle className="text-xs font-medium text-zinc-400">{title}</CardTitle>
                 <Icon className="h-4 w-4 text-zinc-500" />
             </CardHeader>
-            <CardContent>
-                <div className={`text-2xl font-bold ${valueClass || "text-white"}`}>
+            <CardContent className="px-4 pb-3">
+                <div className={`text-xl sm:text-2xl font-bold tracking-tight ${valueClass || "text-white"}`}>
                     {value}
                 </div>
-                {sub && <p className="text-xs text-zinc-500 mt-1">{sub}</p>}
+                {sub && <p className="text-[10px] text-zinc-500 mt-0.5">{sub}</p>}
             </CardContent>
         </Card>
     );
