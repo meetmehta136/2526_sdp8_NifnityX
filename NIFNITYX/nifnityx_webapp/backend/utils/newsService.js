@@ -30,15 +30,27 @@ const categorizeNews = (text) => {
 
 const calculateSentiment = (text) => {
   text = text.toLowerCase();
-  const posCount = Array.from(positiveWords).filter(word => text.includes(word)).length;
-  const negCount = Array.from(negativeWords).filter(word => text.includes(word)).length;
+
+  let posCount = 0;
+  let negCount = 0;
+
+  Array.from(positiveWords).forEach(word => {
+    const matches = text.match(new RegExp('\\b' + word + '\\b', 'g'));
+    if (matches) posCount += matches.length;
+  });
+
+  Array.from(negativeWords).forEach(word => {
+    const matches = text.match(new RegExp('\\b' + word + '\\b', 'g'));
+    if (matches) negCount += matches.length;
+  });
+
   const total = posCount + negCount;
-  
-  if (total === 0) return { score: 0, confidence: 0.3 };
-  
+
+  if (total === 0) return { score: 0, confidence: 0.1 };
+
   const score = (posCount - negCount) / total;
-  const confidence = Math.min(total / 10, 1.0);
-  
+  const confidence = Math.min(0.3 + (total * 0.15), 1.0);
+
   return { score, confidence };
 };
 
@@ -55,10 +67,19 @@ const getSentimentLabel = (score) => {
   return 'neutral';
 };
 
-export const fetchAndStoreNews = async () => {
-  try {
-    console.log('📰 Fetching news from GNews API...');
+let cachedNews = null;
+let lastFetchTime = null;
 
+export const fetchLiveNews = async () => {
+  try {
+    const now = Date.now();
+    // Use cache if less than 15 minutes old
+    if (cachedNews && lastFetchTime && (now - lastFetchTime < 15 * 60 * 1000)) {
+      console.log('📰 Returning news from memory cache...');
+      return cachedNews;
+    }
+
+    console.log('📰 Fetching real-time news from GNews API...');
     const response = await axios.get(GNEWS_BASE_URL, {
       params: {
         q: 'india stock market OR sensex OR nifty OR BSE OR NSE',
@@ -69,39 +90,29 @@ export const fetchAndStoreNews = async () => {
       timeout: 10000
     });
 
-    console.log('   API Response Status:', response.status);
-    console.log('   Articles received:', response.data?.articles?.length || 0);
-
     if (response.status !== 200 || !response.data.articles) {
       console.log('⚠️  No articles fetched from GNews API');
-      console.log('   Response data:', JSON.stringify(response.data).substring(0, 200));
-      return { stored: 0, skipped: 0 };
+      return [];
     }
 
     const articles = response.data.articles;
-    let stored = 0;
-    let skipped = 0;
+    const formattedArticles = [];
 
     for (const article of articles) {
       const title = article.title || '';
       const desc = article.description || '';
       const text = `${title} ${desc}`;
 
-      const exists = await News.findOne({ source_url: article.url });
-      if (exists) {
-        skipped++;
-        continue;
-      }
-
       const sentiment = calculateSentiment(text);
       const publishedAt = new Date(article.publishedAt || Date.now());
 
-      await News.create({
+      formattedArticles.push({
+        _id: Math.random().toString(36).substr(2, 9), // UI needs a unique key usually
         headline: title,
         summary: desc,
         source_name: article.source?.name || 'Unknown',
         source_url: article.url,
-        published_at: publishedAt,
+        published_at: publishedAt.toISOString(),
         category: categorizeNews(text),
         sentiment_score: sentiment.score,
         sentiment_label: getSentimentLabel(sentiment.score),
@@ -109,27 +120,20 @@ export const fetchAndStoreNews = async () => {
         impact_level: getImpactLevel(sentiment.score),
         date_key: publishedAt.toISOString().split('T')[0],
       });
-
-      stored++;
     }
 
-    console.log(`📰 News fetched: ${stored} stored, ${skipped} skipped`);
-    return { stored, skipped };
+    // Sort newest first
+    formattedArticles.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+
+    cachedNews = formattedArticles;
+    lastFetchTime = now;
+    console.log(`📰 Fetched and cached ${formattedArticles.length} live articles.`);
+    return cachedNews;
   } catch (error) {
-    console.error('❌ Error fetching news:', error.message);
+    console.error('❌ Error fetching live news:', error.message);
     if (error.response) {
       console.error('   API Error Response:', error.response.status, error.response.data);
     }
-    return { stored: 0, skipped: 0, error: error.message };
+    return cachedNews || []; // Fallback to stale cache if available
   }
-};
-
-export const startNewsScheduler = () => {
-  console.log('📰 News scheduler started (every 15 minutes)');
-  
-  fetchAndStoreNews();
-  
-  setInterval(() => {
-    fetchAndStoreNews();
-  }, 15 * 60 * 1000);
 };

@@ -1,93 +1,12 @@
-import News from "../models/News.js";
+import { fetchLiveNews } from "../utils/newsService.js";
 
 export const getTodayNews = async (req, res) => {
   try {
     const today = new Date().toISOString().split("T")[0];
-    const news = await News.find({ date_key: today }).sort({ published_at: -1 });
+    const news = await fetchLiveNews();
 
-    // If no news found, create sample data for demo
-    if (news.length === 0) {
-      console.log('⚠️  No news in database, creating sample data...');
-      const sampleNews = [
-        {
-          headline: "NIFTY 50 Surges to New All-Time High on Strong FII Inflows",
-          summary: "The benchmark index gained 250 points as foreign institutional investors pumped in ₹5,000 crore into Indian equities.",
-          source_name: "Economic Times",
-          source_url: `https://example.com/news/${Date.now()}-1`,
-          published_at: new Date(),
-          category: "NIFTY50",
-          sentiment_score: 0.75,
-          sentiment_label: "bullish",
-          sentiment_confidence: 0.85,
-          impact_level: "high",
-          date_key: today,
-        },
-        {
-          headline: "RBI Keeps Repo Rate Unchanged at 6.5%, Maintains Accommodative Stance",
-          summary: "The Reserve Bank of India decided to maintain status quo on interest rates citing inflation concerns.",
-          source_name: "Business Standard",
-          source_url: `https://example.com/news/${Date.now()}-2`,
-          published_at: new Date(Date.now() - 3600000),
-          category: "RBI",
-          sentiment_score: 0.15,
-          sentiment_label: "neutral",
-          sentiment_confidence: 0.70,
-          impact_level: "medium",
-          date_key: today,
-        },
-        {
-          headline: "Bank Nifty Falls 1.5% on Profit Booking After Recent Rally",
-          summary: "Banking stocks witnessed selling pressure as traders booked profits following a strong upward move.",
-          source_name: "Moneycontrol",
-          source_url: `https://example.com/news/${Date.now()}-3`,
-          published_at: new Date(Date.now() - 7200000),
-          category: "BANKNIFTY",
-          sentiment_score: -0.45,
-          sentiment_label: "bearish",
-          sentiment_confidence: 0.75,
-          impact_level: "medium",
-          date_key: today,
-        },
-        {
-          headline: "Global Markets Rally on Positive US Economic Data",
-          summary: "Asian markets followed Wall Street higher after strong jobs report boosted investor confidence.",
-          source_name: "Reuters",
-          source_url: `https://example.com/news/${Date.now()}-4`,
-          published_at: new Date(Date.now() - 10800000),
-          category: "GLOBAL",
-          sentiment_score: 0.55,
-          sentiment_label: "bullish",
-          sentiment_confidence: 0.80,
-          impact_level: "high",
-          date_key: today,
-        },
-        {
-          headline: "IT Stocks Under Pressure Amid Earnings Concerns",
-          summary: "Technology stocks declined as investors worried about slower growth in the upcoming quarter.",
-          source_name: "CNBC TV18",
-          source_url: `https://example.com/news/${Date.now()}-5`,
-          published_at: new Date(Date.now() - 14400000),
-          category: "EARNINGS",
-          sentiment_score: -0.30,
-          sentiment_label: "bearish",
-          sentiment_confidence: 0.65,
-          impact_level: "low",
-          date_key: today,
-        },
-      ];
-
-      await News.insertMany(sampleNews);
-      const insertedNews = await News.find({ date_key: today }).sort({ published_at: -1 });
-      
-      const summary = {
-        total_count: insertedNews.length,
-        bullish_count: insertedNews.filter((n) => n.sentiment_label === "bullish").length,
-        neutral_count: insertedNews.filter((n) => n.sentiment_label === "neutral").length,
-        bearish_count: insertedNews.filter((n) => n.sentiment_label === "bearish").length,
-        overall_sentiment: insertedNews.reduce((sum, n) => sum + n.sentiment_score, 0) / insertedNews.length,
-      };
-
-      return res.json({ date: today, summary, articles: insertedNews });
+    if (!news || news.length === 0) {
+      return res.json({ date: today, summary: null, articles: [] });
     }
 
     const summary = {
@@ -100,7 +19,7 @@ export const getTodayNews = async (req, res) => {
 
     res.json({ date: today, summary, articles: news });
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch today's news", error: error.message });
+    res.status(500).json({ message: "Failed to fetch top news", error: error.message });
   }
 };
 
@@ -109,7 +28,7 @@ export const getNewsByDate = async (req, res) => {
     const { date } = req.query;
     if (!date) return res.status(400).json({ message: "Date parameter required (YYYY-MM-DD)" });
 
-    const news = await News.find({ date_key: date }).sort({ published_at: -1 });
+    const news = await fetchLiveNews();
 
     const summary = {
       total_count: news.length,
@@ -191,15 +110,14 @@ export const storeNewsFromPython = async (req, res) => {
 
 export const refreshNews = async (req, res) => {
   try {
-    const { fetchAndStoreNews } = await import("../utils/newsService.js");
+    const { fetchLiveNews } = await import("../utils/newsService.js");
     console.log('🔄 Manual news refresh triggered...');
-    const result = await fetchAndStoreNews();
-    res.json({ 
-      status: "success", 
+    // Simply fetch without using cache
+    const result = await fetchLiveNews();
+    res.json({
+      status: "success",
       message: "News refresh completed",
-      stored: result.stored,
-      skipped: result.skipped,
-      error: result.error || null
+      fetched: result.length,
     });
   } catch (error) {
     console.error('❌ Refresh error:', error);
@@ -212,7 +130,7 @@ export const testGNewsAPI = async (req, res) => {
     const axios = (await import("axios")).default;
     const GNEWS_API_KEY = "3933d620f8b6e0b563833061244d2aa2";
     const GNEWS_BASE_URL = "https://gnews.io/api/v4/search";
-    
+
     const response = await axios.get(GNEWS_BASE_URL, {
       params: {
         q: 'india',
@@ -222,7 +140,7 @@ export const testGNewsAPI = async (req, res) => {
       },
       timeout: 10000
     });
-    
+
     res.json({
       status: "success",
       apiStatus: response.status,
