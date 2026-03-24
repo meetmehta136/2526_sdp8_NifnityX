@@ -213,8 +213,7 @@ export default function StrategyTuner() {
     setSwitching(true);
 
     try {
-      // Update user settings + hot-swap Python sequentially to prevent MongoDB lock/version conflicts
-      await updateStrategyConfig({ profile: newProfile });
+      // setActiveStrategy persists to MongoDB AND hot-swaps Python in one call
       await setActiveStrategy(newProfile);
       toast.success(`Strategy switched to ${newProfile.toUpperCase()}`);
     } catch (error) {

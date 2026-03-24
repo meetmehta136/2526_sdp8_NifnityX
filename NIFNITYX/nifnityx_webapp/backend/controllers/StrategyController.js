@@ -170,19 +170,25 @@ export const setActiveStrategy = async (req, res) => {
 
     const normalised = strategy.toLowerCase();
 
-    // 1. Persist to MongoDB
-    let config = await Strategy.findOne({ user: req.user._id });
-    if (!config) {
-      config = await Strategy.create({
-        user: req.user._id,
-        active_strategy: normalised,
+    // 1. Persist to Strategy model (MongoDB) — use findOneAndUpdate to avoid
+    //    full-document validation (existing execution_mode may be lowercase)
+    const config = await Strategy.findOneAndUpdate(
+      { user: req.user._id },
+      { active_strategy: normalised },
+      { upsert: true, new: true, runValidators: false }
+    );
+
+    // 2. Also update User model so /auth/me returns the correct profile
+    try {
+      const User = (await import("../models/User.js")).default;
+      await User.findByIdAndUpdate(req.user._id, {
+        "settings.strategy.profile": normalised,
       });
-    } else {
-      config.active_strategy = normalised;
-      await config.save();
+    } catch (userErr) {
+      console.warn("⚠️  User model sync warning:", userErr.message);
     }
 
-    // 2. Hot-swap Python engine
+    // 3. Hot-swap Python engine
     const syncResult = await syncStrategyToPython(normalised);
 
     res.json({

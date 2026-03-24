@@ -14,7 +14,7 @@ export default function BrokerKeys() {
   const [tradingMode, setTradingMode] = useState("paper");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+
   const [showSecrets, setShowSecrets] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ type: "", text: "" });
 
@@ -74,32 +74,20 @@ export default function BrokerKeys() {
     setStatusMsg({ type: "", text: "" });
 
     try {
-      await api.post("/broker/keys", {
+      const response = await api.post("/broker/keys", {
         brokerName: "AngelOne",
         ...keys
       });
-      setStatusMsg({ type: "success", text: "Keys encrypted and saved successfully." });
-      toast.success("Broker keys saved successfully");
+      // Backend returns the authenticated user's name on success
+      const userName = response.data?.name || "Trader";
+      setStatusMsg({ type: "success", text: `Credentials are correct and saved to the database — Hello ${userName}!` });
+      toast.success(`Credentials are correct and saved to the database — Hello ${userName}!`);
     } catch (error) {
-      setStatusMsg({ type: "error", text: error.response?.data?.message || "Failed to save keys." });
-      toast.error(error.response?.data?.message || "Failed to save keys");
+      const errorMessage = error.response?.data?.message || "Invalid credentials. Please verify all your details and try again.";
+      setStatusMsg({ type: "error", text: errorMessage });
+      toast.error(errorMessage);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleTest = async () => {
-    setTesting(true);
-    setStatusMsg({ type: "", text: "" });
-    try {
-      const { data } = await api.post("/broker/test", { brokerName: "AngelOne" });
-      setStatusMsg({ type: "success", text: `${data.message} (Latency: ${data.latency})` });
-      toast.success(`Connection successful! Hello ${data.data.name}`);
-    } catch (error) {
-      setStatusMsg({ type: "error", text: error.response?.data?.message || "Connection failed." });
-      toast.error("Connection failed. Please check your credentials.");
-    } finally {
-      setTesting(false);
     }
   };
 
@@ -224,11 +212,7 @@ export default function BrokerKeys() {
                 <div className="flex gap-3 pt-2">
                   <Button type="submit" disabled={saving} className="bg-white text-black hover:bg-zinc-200">
                     {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    Save Keys
-                  </Button>
-                  <Button type="button" variant="outline" onClick={handleTest} disabled={testing} className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white">
-                    {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wifi className="mr-2 h-4 w-4" />}
-                    Test Connection
+                    {saving ? "Verifying & Saving..." : "Verify & Save Keys"}
                   </Button>
                 </div>
               </form>

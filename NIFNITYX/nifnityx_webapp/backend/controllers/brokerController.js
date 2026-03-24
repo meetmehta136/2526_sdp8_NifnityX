@@ -7,8 +7,8 @@ import https from "https";
 
 // --- FIX: Create an HTTPS Agent to bypass "self-signed certificate" errors ---
 // This is often needed in dev environments or when behind certain proxies/firewalls.
-const httpsAgent = new https.Agent({  
-  rejectUnauthorized: false 
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false
 });
 
 // Helper: Axios instance with the custom agent
@@ -72,38 +72,94 @@ export const saveBrokerKeys = async (req, res) => {
     const existingBroker = await Broker.findOne({ user: req.user._id, brokerName });
 
     const updates = {
-        clientCode,
-        isActive: true,
-        lastVerifiedAt: null
+      clientCode,
+      isActive: true,
+      lastVerifiedAt: null
     };
 
     // 2. Handle Sensitive Fields (Smart Update)
     const sensitiveFields = [
-        { name: "password", val: password },
-        { name: "apiKey", val: apiKey },
-        { name: "secretKey", val: secretKey },
-        { name: "totpSecret", val: totpSecret }
+      { name: "password", val: password },
+      { name: "apiKey", val: apiKey },
+      { name: "secretKey", val: secretKey },
+      { name: "totpSecret", val: totpSecret }
     ];
 
+    const plainVals = {};
+
     for (const field of sensitiveFields) {
-        if (isMasked(field.val)) {
-            if (!existingBroker) {
-                return res.status(400).json({ 
-                    message: `Cannot save masked ${field.name} for a new connection. Please enter the actual value.` 
-                });
-            }
-        } else {
-            updates[field.name] = encrypt(field.val);
+      if (isMasked(field.val)) {
+        if (!existingBroker) {
+          return res.status(400).json({
+            message: `Cannot save masked ${field.name} for a new connection. Please enter the actual value.`
+          });
         }
+        updates[field.name] = existingBroker[field.name];
+        plainVals[field.name] = decrypt(existingBroker[field.name]);
+      } else {
+        updates[field.name] = encrypt(field.val);
+        plainVals[field.name] = field.val;
+      }
     }
 
-    await Broker.findOneAndUpdate(
-      { user: req.user._id, brokerName },
-      { $set: updates },
-      { new: true, upsert: true }
-    );
+    try {
+      const token = await generate({ secret: plainVals.totpSecret });
+      const loginUrl = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword";
 
-    res.json({ message: "Keys saved securely. Please test connection." });
+      const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-UserType': 'USER',
+        'X-SourceID': 'WEB',
+        'X-ClientLocalIP': '127.0.0.1',
+        'X-ClientPublicIP': '127.0.0.1',
+        'X-MACAddress': 'mac_address',
+        'X-PrivateKey': plainVals.apiKey
+      };
+
+      const payload = {
+        clientcode: clientCode,
+        password: plainVals.password,
+        totp: token
+      };
+
+      const loginResponse = await angelApi.post(loginUrl, payload, { headers });
+      if (!loginResponse.data.status) {
+        console.log("AngelOne validation login failed:", loginResponse.data);
+        return res.status(401).json({ message: "Invalid credentials. Please verify all your details and try again." });
+      }
+
+      const jwtToken = loginResponse.data.data.jwtToken;
+      const profileUrl = "https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getProfile";
+      const profileHeaders = { ...headers, 'Authorization': `Bearer ${jwtToken}` };
+
+      const profileResponse = await angelApi.get(profileUrl, { headers: profileHeaders });
+      if (!profileResponse.data.status) {
+        console.log("AngelOne validation profile failed:", profileResponse.data);
+        return res.status(401).json({ message: "Invalid credentials. Please verify all your details and try again." });
+      }
+
+      const userName = profileResponse.data.data.name || clientCode;
+      updates.lastVerifiedAt = new Date();
+
+      await Broker.findOneAndUpdate(
+        { user: req.user._id, brokerName },
+        { $set: updates },
+        { new: true, upsert: true }
+      );
+
+      res.json({ message: "Keys saved securely.", name: userName });
+    } catch (err) {
+      console.error("Angel One Connection Verification Error:", err.response?.data || err.message);
+      const angelStatus = err.response?.status;
+
+      if (angelStatus >= 500 || angelStatus === 429) {
+        const apiMsg = err.response?.data?.message || err.message;
+        return res.status(502).json({ message: `Angel One API Error: ${apiMsg}` });
+      }
+
+      return res.status(401).json({ message: "Invalid credentials. Please verify all your details and try again." });
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -126,7 +182,7 @@ export const testConnection = async (req, res) => {
     const clientCode = broker.clientCode;
 
     if (decryptedTotpSecret.includes("*") || decryptedApiKey.includes("*")) {
-        return res.status(400).json({ message: "Stored keys appear invalid (masked). Please re-enter them." });
+      return res.status(400).json({ message: "Stored keys appear invalid (masked). Please re-enter them." });
     }
 
     // 1. Generate TOTP
@@ -137,7 +193,7 @@ export const testConnection = async (req, res) => {
 
     // 2. Call Angel One Login API (Using angelApi instance with httpsAgent)
     const loginUrl = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword";
-    
+
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
@@ -182,7 +238,7 @@ export const testConnection = async (req, res) => {
     console.error("Angel One Connection Error:", error.response?.data || error.message);
     const errorMsg = error.response?.data?.message || error.message || "Connection failed";
     const errorCode = error.response?.data?.errorcode ? ` (Code: ${error.response.data.errorcode})` : "";
-    
+
     res.status(500).json({ message: `Connection Error: ${errorMsg}${errorCode}` });
   }
 };
@@ -207,11 +263,11 @@ export const getMarketStatus = async (req, res) => {
     const clientCode = broker.clientCode;
 
     if (!decryptedTotpSecret || decryptedTotpSecret.includes("*")) {
-          throw new Error("Invalid TOTP Secret");
+      throw new Error("Invalid TOTP Secret");
     }
-    
+
     const token = await generate({ secret: decryptedTotpSecret });
-    
+
     const loginUrl = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword";
     const headers = {
       'Content-Type': 'application/json',
@@ -252,28 +308,28 @@ export const getMarketStatus = async (req, res) => {
     };
 
     const niftyPayload = { exchange: "NSE", tradingsymbol: "NIFTY", symboltoken: "99926000" };
-    
+
     // Use angelApi here as well
     const niftyResponse = await angelApi.post(ltpUrl, niftyPayload, { headers: ltpHeaders });
-    
+
     let niftyData = { price: 0, change: 0, percent: 0 };
-    
+
     if (niftyResponse.data.status) {
-        niftyData.price = niftyResponse.data.data.ltp;
+      niftyData.price = niftyResponse.data.data.ltp;
     }
 
     res.json({
-        nifty: { 
-            price: niftyData.price, 
-            change: 0, 
-            percent: 0 
-        },
-        vix: { 
-            price: 12.45, 
-            change: 0, 
-            percent: 0 
-        }, 
-        connected: true
+      nifty: {
+        price: niftyData.price,
+        change: 0,
+        percent: 0
+      },
+      vix: {
+        price: 12.45,
+        change: 0,
+        percent: 0
+      },
+      connected: true
     });
 
   } catch (error) {
@@ -291,90 +347,90 @@ export const getMarketStatus = async (req, res) => {
 // @desc    Fetch Historical Data for Chart
 // @route   GET /api/broker/history
 export const getHistoricalData = async (req, res) => {
-    try {
-        const broker = await Broker.findOne({ user: req.user._id, brokerName: "AngelOne" });
-        if (!broker) return res.json([]);
+  try {
+    const broker = await Broker.findOne({ user: req.user._id, brokerName: "AngelOne" });
+    if (!broker) return res.json([]);
 
-        const decryptedApiKey = decrypt(broker.apiKey);
-        const decryptedPassword = decrypt(broker.password);
-        const decryptedTotpSecret = decrypt(broker.totpSecret);
-        const clientCode = broker.clientCode;
+    const decryptedApiKey = decrypt(broker.apiKey);
+    const decryptedPassword = decrypt(broker.password);
+    const decryptedTotpSecret = decrypt(broker.totpSecret);
+    const clientCode = broker.clientCode;
 
-        if (!decryptedTotpSecret || decryptedTotpSecret.includes("*")) {
-             return res.json([]); 
-        }
-
-        const token = await generate({ secret: decryptedTotpSecret });
-        const loginUrl = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword";
-        
-        const commonHeaders = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-UserType': 'USER',
-            'X-SourceID': 'WEB',
-            'X-ClientLocalIP': '127.0.0.1',
-            'X-ClientPublicIP': '127.0.0.1',
-            'X-MACAddress': 'mac_address',
-            'X-PrivateKey': decryptedApiKey
-        };
-
-        // Use angelApi here as well
-        const loginResponse = await angelApi.post(loginUrl, {
-            clientcode: clientCode,
-            password: decryptedPassword,
-            totp: token
-        }, { headers: commonHeaders });
-
-        if (!loginResponse.data.status) {
-            console.error("Angel History Login Failed");
-            return res.json([]);
-        }
-
-        const jwtToken = loginResponse.data.data.jwtToken;
-        const histUrl = "https://apiconnect.angelbroking.com/rest/secure/angelbroking/historical/v1/getCandleData";
-        
-        const histHeaders = {
-            ...commonHeaders,
-            'Authorization': `Bearer ${jwtToken}`,
-        };
-
-        const now = new Date();
-        const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        
-        const fmt = (d) => {
-            const pad = (n) => n.toString().padStart(2, '0');
-            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-        };
-
-        const payload = {
-            exchange: "NSE",
-            symboltoken: "99926000",
-            interval: "ONE_MINUTE",
-            fromdate: fmt(start),
-            todate: fmt(now)
-        };
-
-        // Use angelApi here as well
-        const response = await angelApi.post(histUrl, payload, { headers: histHeaders });
-
-        if (response.data.status && response.data.data) {
-            const chartData = response.data.data.map(d => ({
-                time: Math.floor(new Date(d[0]).getTime() / 1000),
-                open: d[1],
-                high: d[2],
-                low: d[3],
-                close: d[4]
-            }));
-
-            chartData.sort((a, b) => a.time - b.time);
-            res.json(chartData);
-        } else {
-            console.error("Angel History API Error:", response.data.message);
-            res.json([]);
-        }
-
-    } catch (error) {
-        console.error("History Fetch Error:", error.message);
-        res.status(500).json({ message: error.message });
+    if (!decryptedTotpSecret || decryptedTotpSecret.includes("*")) {
+      return res.json([]);
     }
+
+    const token = await generate({ secret: decryptedTotpSecret });
+    const loginUrl = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword";
+
+    const commonHeaders = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-UserType': 'USER',
+      'X-SourceID': 'WEB',
+      'X-ClientLocalIP': '127.0.0.1',
+      'X-ClientPublicIP': '127.0.0.1',
+      'X-MACAddress': 'mac_address',
+      'X-PrivateKey': decryptedApiKey
+    };
+
+    // Use angelApi here as well
+    const loginResponse = await angelApi.post(loginUrl, {
+      clientcode: clientCode,
+      password: decryptedPassword,
+      totp: token
+    }, { headers: commonHeaders });
+
+    if (!loginResponse.data.status) {
+      console.error("Angel History Login Failed");
+      return res.json([]);
+    }
+
+    const jwtToken = loginResponse.data.data.jwtToken;
+    const histUrl = "https://apiconnect.angelbroking.com/rest/secure/angelbroking/historical/v1/getCandleData";
+
+    const histHeaders = {
+      ...commonHeaders,
+      'Authorization': `Bearer ${jwtToken}`,
+    };
+
+    const now = new Date();
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const fmt = (d) => {
+      const pad = (n) => n.toString().padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    const payload = {
+      exchange: "NSE",
+      symboltoken: "99926000",
+      interval: "ONE_MINUTE",
+      fromdate: fmt(start),
+      todate: fmt(now)
+    };
+
+    // Use angelApi here as well
+    const response = await angelApi.post(histUrl, payload, { headers: histHeaders });
+
+    if (response.data.status && response.data.data) {
+      const chartData = response.data.data.map(d => ({
+        time: Math.floor(new Date(d[0]).getTime() / 1000),
+        open: d[1],
+        high: d[2],
+        low: d[3],
+        close: d[4]
+      }));
+
+      chartData.sort((a, b) => a.time - b.time);
+      res.json(chartData);
+    } else {
+      console.error("Angel History API Error:", response.data.message);
+      res.json([]);
+    }
+
+  } catch (error) {
+    console.error("History Fetch Error:", error.message);
+    res.status(500).json({ message: error.message });
+  }
 };
