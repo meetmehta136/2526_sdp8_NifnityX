@@ -26,6 +26,11 @@
 
 **`Project Code`** 2526_SDP8 &nbsp;•&nbsp; **`Team`** Meet Mehta · Dhruval Patel
 
+<br/>
+
+[![Live Demo](https://img.shields.io/badge/🚀_Live_Demo-sdpnifnityx.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://sdpnifnityx.vercel.app)
+[![Backend API](https://img.shields.io/badge/⚙️_Backend_API-nifnityx.onrender.com-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://nifnityx.onrender.com)
+
 </div>
 
 <br/>
