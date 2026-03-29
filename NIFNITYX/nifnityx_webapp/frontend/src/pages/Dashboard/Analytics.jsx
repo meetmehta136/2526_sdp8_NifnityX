@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
     TrendingUp, TrendingDown, Activity, Target, RefreshCcw,
     Brain, FlaskConical, DollarSign, BarChart3,
-    Gauge, ArrowDownRight, Clock3
+    Gauge, ArrowDownRight, Clock3, Zap, Flame, X
 } from "lucide-react";
 import {
     Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis,
@@ -132,38 +132,55 @@ export default function Analytics() {
 
             {/* Filters Toolbar */}
             <div className="flex-none flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-zinc-900/30 p-2 rounded-xl border border-zinc-800/50 backdrop-blur-sm">
-                <Select value={strategy} onValueChange={setStrategy}>
-                    <SelectTrigger className="w-full sm:w-[180px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
-                        <SelectValue placeholder="Strategy" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
-                        {strategies.map((s) => (
-                            <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center w-full sm:w-auto">
+                    <Select value={strategy} onValueChange={setStrategy}>
+                        <SelectTrigger className="w-full sm:w-[180px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
+                            <SelectValue placeholder="Strategy" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
+                            {strategies.map((s) => (
+                                <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
 
-                <Select value={mode} onValueChange={setMode}>
-                    <SelectTrigger className="w-full sm:w-[120px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
-                        <SelectValue placeholder="Mode" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
-                        <SelectItem value="PAPER">Paper</SelectItem>
-                        <SelectItem value="LIVE">Live</SelectItem>
-                    </SelectContent>
-                </Select>
+                    <Select value={mode} onValueChange={setMode}>
+                        <SelectTrigger className="w-full sm:w-[120px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
+                            <SelectValue placeholder="Mode" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
+                            <SelectItem value="PAPER">Paper</SelectItem>
+                            <SelectItem value="LIVE">Live</SelectItem>
+                        </SelectContent>
+                    </Select>
 
-                <Select value={timeRange} onValueChange={setTimeRange}>
-                    <SelectTrigger className="w-full sm:w-[150px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
-                        <SelectValue placeholder="Range" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
-                        <SelectItem value="7d">Last 7 Days</SelectItem>
-                        <SelectItem value="30d">Last 30 Days</SelectItem>
-                        <SelectItem value="90d">Last 3 Months</SelectItem>
-                        <SelectItem value="all">All Time</SelectItem>
-                    </SelectContent>
-                </Select>
+                    <Select value={timeRange} onValueChange={setTimeRange}>
+                        <SelectTrigger className="w-full sm:w-[150px] h-8 bg-zinc-950 border-zinc-800 text-xs text-zinc-300">
+                            <SelectValue placeholder="Range" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-300 text-xs">
+                            <SelectItem value="7d">Last 7 Days</SelectItem>
+                            <SelectItem value="30d">Last 30 Days</SelectItem>
+                            <SelectItem value="90d">Last 3 Months</SelectItem>
+                            <SelectItem value="all">All Time</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                {(strategy !== "sniper" || mode !== "PAPER" || timeRange !== "all") && (
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => {
+                            setStrategy("sniper");
+                            setMode("PAPER");
+                            setTimeRange("all");
+                        }} 
+                        className="h-8 w-8 text-zinc-500 hover:text-white hover:bg-zinc-800 ml-auto"
+                    >
+                        <X size={14} />
+                    </Button>
+                )}
             </div>
 
             {!hasTrades ? (
@@ -216,8 +233,8 @@ export default function Analytics() {
                                     <AreaChart data={equityCurveData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                         <defs>
                                             <linearGradient id="fillPnlMain" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0.8} />
-                                                <stop offset="95%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0.05} />
+                                                <stop offset="5%" stopColor="hsl(142, 76%, 45%)" stopOpacity={0.8} />
+                                                <stop offset="95%" stopColor="hsl(142, 76%, 45%)" stopOpacity={0.05} />
                                             </linearGradient>
                                         </defs>
                                         <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
@@ -225,8 +242,8 @@ export default function Analytics() {
                                             tick={{ fill: '#71717a', fontSize: 10 }}
                                             tickFormatter={(v) => new Date(v).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                                         />
-                                        <YAxis tickLine={false} axisLine={false} tick={{ fill: '#71717a', fontSize: 10 }} 
-                                            tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
+                                        <YAxis tickLine={false} axisLine={false} tick={{ fill: '#71717a', fontSize: 10 }}
+                                            tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
                                         <ChartTooltip content={<ChartTooltipContent />} />
                                         <Area
                                             type="monotone" dataKey="capital" strokeWidth={3}
@@ -243,7 +260,7 @@ export default function Analytics() {
 
                     {/* ═══ ZONE 3: RISK & RECOVERY ═══ */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-                         <Card className="xl:col-span-8 bg-zinc-950 border-zinc-800 shadow-lg">
+                        <Card className="xl:col-span-8 bg-zinc-950 border-zinc-800 shadow-lg">
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
                                     <ArrowDownRight className="w-4 h-4 text-red-500" /> Drawdown Analysis
@@ -272,43 +289,67 @@ export default function Analytics() {
                             </CardContent>
                         </Card>
 
-                        <div className="xl:col-span-4 grid grid-cols-2 gap-3">
-                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4">
-                                <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">R:R Ratio</p>
-                                <p className="text-lg font-mono font-bold text-zinc-100 mt-1">{kpis.riskReward}</p>
-                             </Card>
-                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4">
-                                <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Sortino</p>
-                                <p className="text-lg font-mono font-bold text-zinc-100 mt-1">{kpis.sortino}</p>
-                             </Card>
-                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4">
-                                <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Win Streak</p>
-                                <p className="text-lg font-mono font-bold text-emerald-400 mt-1">{kpis.maxWinStreak}</p>
-                             </Card>
-                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4">
-                                <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Loss Streak</p>
-                                <p className="text-lg font-mono font-bold text-red-400 mt-1">{kpis.maxLossStreak}</p>
-                             </Card>
-                             <Card className="bg-zinc-900/40 border-zinc-800/80 p-4 col-span-2">
-                                <div className="flex justify-between items-center">
-                                    <div>
-                                        <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Expectancy</p>
-                                        <p className="text-lg font-mono font-bold text-zinc-100 mt-0.5">
-                                            ₹{((kpis.avgWin * (kpis.winRate/100)) - (kpis.avgLoss * (1 - kpis.winRate/100))).toFixed(0)}
-                                        </p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-[9px] text-zinc-500">Avg Win: <span className="text-emerald-500">₹{kpis.avgWin.toFixed(0)}</span></p>
-                                        <p className="text-[9px] text-zinc-500">Avg Loss: <span className="text-red-500">₹{kpis.avgLoss.toFixed(0)}</span></p>
+                        <Card className="xl:col-span-4 bg-zinc-950 border-zinc-800 shadow-lg flex flex-col">
+                            <CardHeader className="pb-2 border-b border-zinc-800/40 mb-3">
+                                <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                                    <Zap className="w-4 h-4 text-violet-500" /> Advanced Metrics
+                                </CardTitle>
+                                <CardDescription className="text-xs text-zinc-500">Risk, reward & statistical edge factors</CardDescription>
+                            </CardHeader>
+                            <CardContent className="flex flex-col gap-3 flex-1 px-4 pb-4">
+                                {/* Expectancy Block - Featured stat */}
+                                <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800/50 relative overflow-hidden">
+                                    <div className="relative z-10">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold">Expectancy</p>
+                                            <Target className="w-3.5 h-3.5 text-zinc-500" />
+                                        </div>
+                                        <div className="flex items-baseline gap-1.5 mb-4">
+                                            <p className="text-3xl font-mono font-bold text-zinc-100">
+                                                ₹{((kpis.avgWin * (kpis.winRate/100)) - (kpis.avgLoss * (1 - kpis.winRate/100))).toFixed(0)}
+                                            </p>
+                                            <span className="text-[10px] text-zinc-500 font-medium uppercase">/ trade</span>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-emerald-500/10 rounded-lg px-3 py-2 border border-emerald-500/20">
+                                                <p className="text-[9px] text-emerald-500/80 font-bold uppercase tracking-wider">Avg Win</p>
+                                                <p className="text-[13px] font-bold text-emerald-400 mt-0.5 tabular-nums">₹{kpis.avgWin.toFixed(0)}</p>
+                                            </div>
+                                            <div className="bg-red-500/10 rounded-lg px-3 py-2 border border-red-500/20">
+                                                <p className="text-[9px] text-red-500/80 font-bold uppercase tracking-wider">Avg Loss</p>
+                                                <p className="text-[13px] font-bold text-red-400 mt-0.5 tabular-nums">₹{kpis.avgLoss.toFixed(0)}</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                             </Card>
-                        </div>
+
+                                {/* Grid of 4 secondary stats */}
+                                <div className="grid grid-cols-2 gap-3 flex-1">
+                                    <div className="bg-zinc-900/30 rounded-xl p-3 border border-zinc-800/50 flex flex-col justify-center">
+                                         <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1 flex items-center justify-between">R:R Ratio <Activity className="w-3 h-3 text-zinc-600"/></p>
+                                         <p className="text-lg font-mono font-bold text-zinc-200">{kpis.riskReward}</p>
+                                    </div>
+                                    <div className="bg-zinc-900/30 rounded-xl p-3 border border-zinc-800/50 flex flex-col justify-center">
+                                         <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1 flex items-center justify-between">Sortino <Gauge className="w-3 h-3 text-zinc-600"/></p>
+                                         <p className="text-lg font-mono font-bold text-zinc-200">{kpis.sortino}</p>
+                                    </div>
+                                    <div className="bg-zinc-900/30 rounded-xl p-3 border border-zinc-800/50 flex flex-col justify-center">
+                                         <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1 flex items-center justify-between">Win Streak <Flame className="w-3 h-3 text-emerald-600/50"/></p>
+                                         <p className="text-lg font-mono font-bold text-emerald-400">{kpis.maxWinStreak}</p>
+                                    </div>
+                                    <div className="bg-zinc-900/30 rounded-xl p-3 border border-zinc-800/50 flex flex-col justify-center">
+                                         <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1 flex items-center justify-between">Loss Streak <TrendingDown className="w-3 h-3 text-red-600/50"/></p>
+                                         <p className="text-lg font-mono font-bold text-red-400">{kpis.maxLossStreak}</p>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
                     </div>
 
                     {/* ═══ ZONE 4: DISTRIBUTION & ANALYSIS ═══ */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                         <Card className="bg-zinc-950 border-zinc-800 shadow-lg">
+                        <Card className="bg-zinc-950 border-zinc-800 shadow-lg">
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
                                     <BarChart3 className="w-4 h-4 text-blue-500" /> Daily Distribution
@@ -322,7 +363,7 @@ export default function Analytics() {
                                         <ChartTooltip content={<ChartTooltipContent />} />
                                         <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
                                             {dailyPnlData.map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? "hsl(142, 76%, 36%)" : "hsl(0, 84%, 60%)"} />
+                                                <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? "hsl(142, 76%, 45%)" : "hsl(0, 84%, 60%)"} />
                                             ))}
                                         </Bar>
                                     </BarChart>
@@ -391,7 +432,7 @@ export default function Analytics() {
                                                 {mlScatterData.map((entry, i) => (
                                                     <Cell
                                                         key={`scatter-${i}`}
-                                                        fill={entry.status === "WIN" ? "hsl(142, 76%, 36%)" : "hsl(0, 84%, 60%)"}
+                                                        fill={entry.status === "WIN" ? "hsl(142, 76%, 45%)" : "hsl(0, 84%, 60%)"}
                                                         fillOpacity={0.7}
                                                     />
                                                 ))}
