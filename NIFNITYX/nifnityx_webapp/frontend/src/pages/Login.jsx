@@ -1,145 +1,119 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import React, { useState } from 'react';
+import { useNavigate, Link } from "react-router-dom";
+import { Zap, ShieldCheck, Cpu, TrendingUp, AlertCircle } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
-import AuthBackground from "@/components/ui/AuthBackground";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import Logo from "@/components/ui/Logo";
 import api from "@/lib/api";
+import AuthHeroSide from '../components/AuthHeroSide';
 
-export default function Login({ onLoginSuccess }) {
+const Login = ({ onLoginSuccess }) => {
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({ email: "", password: "" });
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.id]: e.target.value });
-  };
-
-  const handleSubmit = async (e) => {
+  const loginButtonHandler = async (e) => {
     e.preventDefault();
-    setError("");
     setLoading(true);
-
+    setError("");
     try {
-      await api.post("/auth/login", {
-        email: formData.email,
-        password: formData.password,
-      });
+      await api.post("/auth/login", { email, password });
 
       if (onLoginSuccess) {
         await onLoginSuccess();
       }
 
       navigate("/dashboard");
-    } catch (err) {
-      setError(err.response?.data?.message || "Login failed");
+
+    } catch (error) {
+      console.log(error);
+      setError(error.response?.data?.msg || error.response?.data?.message || "Login failed - Invalid credentials");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
-    <AuthBackground>
-      <div className="animate-fade-in-up">
-        {/* Mobile logo (hidden on lg+) */}
-        <div className="flex flex-col items-center gap-2 mb-8 lg:hidden">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-            <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M13 3L4 14h7l-2 7 9-11h-7l2-7z" />
-            </svg>
-          </div>
-          <span className="text-lg font-bold text-white tracking-tight">NifnityX</span>
-        </div>
+    <div className="flex w-full h-screen bg-black overflow-hidden font-sans">
+      {/* Left Partition (60%) - Hero & Terminal Animation */}
+      <AuthHeroSide title="ENCRYPTED_AUTH: INITIALIZING..." scrambleChars="01$X_#" />
 
-        {/* Glassmorphism form card */}
-        <div className="glass-card rounded-2xl p-8 animate-fade-in-scale" style={{ animationDelay: "100ms" }}>
-          {/* Header */}
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold text-white tracking-tight">Welcome back</h1>
-            <p className="text-zinc-500 text-sm mt-1">Sign in to your trading dashboard</p>
+      {/* Right Partition (40%) - Login Form (Consistent with Signup Inspiration Styling) */}
+      <div className="w-full lg:w-[40%] h-full flex items-center justify-center bg-zinc-950 p-8 sm:p-12 relative overflow-y-auto select-none">
+        <div className="flex flex-col gap-6 w-full max-w-sm mx-auto animate-fade-in-up">
+          <div className="flex flex-col items-center gap-2 mb-4">
+            <Link to="/" className="flex flex-col items-center gap-2 font-medium text-white mb-2">
+              <Logo className="h-10 w-10 text-white" color="white" />
+              <span className="sr-only">NifnityX</span>
+            </Link>
+            <h1 className="text-3xl font-bold text-white tracking-tight font-['JetBrains_Mono']">Welcome back</h1>
+            <p className="text-zinc-400 text-sm text-center">
+              Login to access your trading dashboard
+            </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-zinc-300 text-xs font-medium uppercase tracking-wider">
-                Email
-              </Label>
+          <form onSubmit={loginButtonHandler} className="flex flex-col gap-5">
+            <div className="grid gap-2">
+              <Label htmlFor="email" className="text-white">Email or username</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="trader@nifnityx.com"
+                placeholder="m@example.com"
                 required
-                className="h-11 bg-zinc-900/60 border-zinc-700/50 text-white placeholder:text-zinc-600 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 rounded-lg transition-all [&:-webkit-autofill]:transition-all [&:-webkit-autofill]:duration-[9999s] [&:-webkit-autofill]:-webkit-text-fill-color-white [&:-webkit-autofill]:shadow-[0_0_0px_1000px_transparent_inset] [&:-webkit-autofill]:border-zinc-700"
-                value={formData.email}
-                onChange={handleChange}
+                className="bg-zinc-900/50 border-zinc-700 text-white placeholder:text-zinc-500 focus:border-white focus:ring-0 [&:-webkit-autofill]:transition-all [&:-webkit-autofill]:duration-[9999s] [&:-webkit-autofill]:-webkit-text-fill-color-white"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="grid gap-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-zinc-300 text-xs font-medium uppercase tracking-wider">
-                  Password
-                </Label>
-                <a href="#" className="text-[11px] text-zinc-500 hover:text-indigo-400 transition-colors">
-                  Forgot password?
-                </a>
+                <Label htmlFor="password" className="text-white">Password</Label>
               </div>
               <Input
                 id="password"
                 type="password"
                 required
-                className="h-11 bg-zinc-900/60 border-zinc-700/50 text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 rounded-lg transition-all [&:-webkit-autofill]:transition-all [&:-webkit-autofill]:duration-[9999s] [&:-webkit-autofill]:-webkit-text-fill-color-white [&:-webkit-autofill]:shadow-[0_0_0px_1000px_transparent_inset] [&:-webkit-autofill]:border-zinc-700"
-                value={formData.password}
-                onChange={handleChange}
+                className="bg-zinc-900/50 border-zinc-700 text-white focus:border-white focus:ring-0 [&:-webkit-autofill]:transition-all [&:-webkit-autofill]:duration-[9999s] [&:-webkit-autofill]:-webkit-text-fill-color-white"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
             </div>
 
             {error && (
-              <Alert variant="destructive" className="bg-red-950/30 border-red-900/50 text-red-300 rounded-lg">
+              <Alert variant="destructive" className="bg-red-900/20 border-red-900 text-red-200">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription className="text-xs">{error}</AlertDescription>
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>
+                  {error}
+                </AlertDescription>
               </Alert>
             )}
 
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full h-11 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-semibold rounded-lg shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all duration-300 group"
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <>
-                  Launch Dashboard
-                  <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-1" />
-                </>
-              )}
+            <Button type="submit" className="w-full bg-white text-black hover:bg-zinc-200 font-semibold" disabled={loading}>
+              {loading ? "Logging in..." : "Log In"}
             </Button>
+
+            <div className="text-center text-sm text-zinc-400 mt-2">
+              Don't have an account?{" "}
+              <Link to="/signup" className="text-white underline underline-offset-4 hover:text-zinc-300">
+                Sign up here
+              </Link>
+            </div>
           </form>
 
-          {/* Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-zinc-800/60" />
-            </div>
+          <div className="text-balance text-center text-xs text-zinc-500 mt-8 [&_a]:underline [&_a]:underline-offset-4 hover:[&_a]:text-zinc-400">
+            By clicking continue, you agree to our <a href="#">Terms of Service</a>{" "}
+            and <a href="#">Privacy Policy</a>.
           </div>
-
-          <p className="text-center text-sm text-zinc-500">
-            Don&apos;t have an account?{" "}
-            <Link to="/signup" className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
-              Create account
-            </Link>
-          </p>
         </div>
-
-        {/* Bottom tag */}
-        <p className="text-center text-[10px] text-zinc-700 mt-6 tracking-wider uppercase font-medium">
-          Secured • Encrypted • Real-Time
-        </p>
       </div>
-    </AuthBackground>
+    </div>
   );
-}
+};
+
+export default Login;

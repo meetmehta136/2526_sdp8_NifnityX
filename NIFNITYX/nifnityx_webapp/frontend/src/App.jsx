@@ -57,19 +57,17 @@ function App() {
         />
 
         {/* Protected Routes */}
-        {isAuthenticated && (
-          <Route element={<DashboardLayout user={user} />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/signals" element={<Signals />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/news" element={<News />} />
-            <Route path="/history" element={<TradeHistory />} />
-            <Route path="/strategy" element={<StrategyTuner />} />
-            <Route path="/account" element={<Account />} />
-            <Route path="/broker" element={<BrokerKeys />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Route>
-        )}
+        <Route element={isAuthenticated ? <DashboardLayout user={user} /> : <Navigate to="/login" replace />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/signals" element={<Signals />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/news" element={<News />} />
+          <Route path="/history" element={<TradeHistory />} />
+          <Route path="/strategy" element={<StrategyTuner />} />
+          <Route path="/account" element={<Account />} />
+          <Route path="/broker" element={<BrokerKeys />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
 
         {/* Fallback */}
         <Route

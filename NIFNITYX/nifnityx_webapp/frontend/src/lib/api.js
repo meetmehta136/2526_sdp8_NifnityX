@@ -9,6 +9,25 @@ const api = axios.create({
     },
 });
 
+// Intercept 401 responses to automatically redirect unauthenticated users
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response && error.response.status === 401) {
+            const originalRequest = error.config;
+            // Don't redirect if it's the initial checkAuth call or already on auth pages
+            if (
+                originalRequest.url !== '/auth/me' &&
+                window.location.pathname !== '/login' && 
+                window.location.pathname !== '/signup'
+            ) {
+                window.location.href = '/login';
+            }
+        }
+        return Promise.reject(error);
+    }
+);
+
 export const fetchDashboardStats = async (mode) => {
     return api.get(`/trade/stats?mode=${mode}`);
 };
