@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import {
     Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis,
-    Tooltip, Cell, Pie, PieChart, Scatter, ScatterChart, ZAxis
+    Tooltip, Cell, Pie, PieChart, Scatter, ScatterChart, ZAxis, ReferenceLine
 } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -349,17 +349,19 @@ export default function Analytics() {
 
                     {/* ═══ ZONE 4: DISTRIBUTION & ANALYSIS ═══ */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                        <Card className="bg-zinc-950 border-zinc-800 shadow-lg">
-                            <CardHeader className="pb-2">
+                        <Card className="bg-zinc-950 border-zinc-800 shadow-lg flex flex-col">
+                            <CardHeader className="pb-2 border-b border-zinc-800/40 mb-2">
                                 <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
                                     <BarChart3 className="w-4 h-4 text-blue-500" /> Daily Distribution
                                 </CardTitle>
+                                <CardDescription className="text-xs text-zinc-500">Net P&L across trading sessions</CardDescription>
                             </CardHeader>
-                            <CardContent className="h-[240px]">
+                            <CardContent className="h-[230px] px-2 pb-4">
                                 <ChartContainer config={{}} className="h-full w-full">
-                                    <BarChart data={dailyPnlData}>
+                                    <BarChart data={dailyPnlData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                         <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                                         <XAxis dataKey="date" hide />
+                                        <YAxis tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`} />
                                         <ChartTooltip content={<ChartTooltipContent />} />
                                         <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
                                             {dailyPnlData.map((entry, index) => (
@@ -372,13 +374,14 @@ export default function Analytics() {
                         </Card>
 
                         <Card className="bg-zinc-950 border-zinc-800 shadow-lg flex flex-col">
-                            <CardHeader className="pb-2">
+                            <CardHeader className="pb-2 border-b border-zinc-800/40 mb-2">
                                 <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
                                     <DollarSign className="w-4 h-4 text-amber-500" /> Friction Cost
                                 </CardTitle>
+                                <CardDescription className="text-xs text-zinc-500">Capital decay via broker fees & taxes</CardDescription>
                             </CardHeader>
-                            <CardContent className="flex-1 pb-0">
-                                <ChartContainer config={{}} className="mx-auto aspect-square max-h-[180px]">
+                            <CardContent className="flex-1 pb-4">
+                                <ChartContainer config={{}} className="mx-auto aspect-square max-h-[170px]">
                                     <PieChart>
                                         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                                         <Pie
@@ -395,7 +398,7 @@ export default function Analytics() {
                                         </Pie>
                                     </PieChart>
                                 </ChartContainer>
-                                <div className="p-3 pt-0 flex flex-wrap justify-center gap-3 text-[10px] text-zinc-400">
+                                <div className="p-3 pt-2 flex flex-wrap justify-center gap-3 text-[10px] text-zinc-400">
                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500" /> Net</div>
                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-amber-500" /> Brokerage</div>
                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-red-500" /> Taxes</div>
@@ -404,26 +407,45 @@ export default function Analytics() {
                         </Card>
 
                         <Card className="bg-zinc-950 border-zinc-800 shadow-lg flex flex-col">
-                            <CardHeader className="pb-2">
+                            <CardHeader className="pb-2 border-b border-zinc-800/40 mb-2">
                                 <CardTitle className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                    <Brain className="w-4 h-4 text-violet-500" /> ML Accuracy
+                                    <Brain className="w-4 h-4 text-violet-500" /> ML Accuracy Profile
                                 </CardTitle>
+                                <CardDescription className="text-xs text-zinc-500">Trade profitability correlated against ML confidence</CardDescription>
                             </CardHeader>
-                            <CardContent className="flex-1 min-h-[240px]">
+                            <CardContent className="flex-1 min-h-[230px] px-2 pb-4">
                                 {mlScatterData.length > 0 ? (
-                                    <ChartContainer config={{}} className="h-full w-full max-h-[240px]">
-                                        <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                                            <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                                            <XAxis type="number" dataKey="ml_score" hide />
-                                            <YAxis type="number" dataKey="pnl" hide />
+                                    <ChartContainer config={{}} className="h-full w-full max-h-[230px]">
+                                        <ScatterChart margin={{ top: 10, right: 15, left: -20, bottom: 5 }}>
+                                            <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
+                                            <XAxis 
+                                                type="number" 
+                                                dataKey="ml_score" 
+                                                name="ML Score" 
+                                                tick={{ fill: '#71717a', fontSize: 10 }}
+                                                tickLine={false}
+                                                axisLine={false}
+                                                domain={['auto', 'auto']}
+                                            />
+                                            <YAxis 
+                                                type="number" 
+                                                dataKey="pnl" 
+                                                name="P&L" 
+                                                tick={{ fill: '#71717a', fontSize: 10 }}
+                                                tickLine={false}
+                                                axisLine={false}
+                                                tickFormatter={(v) => `₹${(v/1000).toFixed(0)}k`}
+                                            />
+                                            <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                                             <Tooltip
+                                                cursor={{ strokeDasharray: '3 3', stroke: '#3f3f46' }}
                                                 content={({ payload }) => {
                                                     if (!payload?.length) return null;
                                                     const d = payload[0].payload;
                                                     return (
                                                         <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                                                            <p className="text-zinc-400">ML Score: <span className="text-white">{d.ml_score}</span></p>
-                                                            <p className="text-zinc-400">P&L: <span className={d.pnl >= 0 ? "text-emerald-400" : "text-red-400"}>₹{d.pnl?.toFixed(0)}</span></p>
+                                                            <p className="text-zinc-400">ML Conf: <span className="text-white font-mono">{d.ml_score}</span></p>
+                                                            <p className="text-zinc-400">P&L: <span className={d.pnl >= 0 ? "text-emerald-400 font-mono" : "text-red-400 font-mono"}>₹{d.pnl?.toFixed(0)}</span></p>
                                                         </div>
                                                     );
                                                 }}
@@ -433,7 +455,7 @@ export default function Analytics() {
                                                     <Cell
                                                         key={`scatter-${i}`}
                                                         fill={entry.status === "WIN" ? "hsl(142, 76%, 45%)" : "hsl(0, 84%, 60%)"}
-                                                        fillOpacity={0.7}
+                                                        fillOpacity={0.8}
                                                     />
                                                 ))}
                                             </Scatter>
